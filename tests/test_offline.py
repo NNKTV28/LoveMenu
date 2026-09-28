@@ -145,10 +145,7 @@ def test_metadata() -> None:
 
 
 def test_cross_assembly() -> None:
-    """The chat types span three DLLs; loaded as a set they must resolve.
-
-    These offsets are what lc_patches/chat_integration reads, so pin them.
-    """
+    """The chat types span three DLLs; loaded as a set they must resolve."""
     managed = ASSEMBLY.parent
     if not managed.is_dir():
         print(f"[skip] cross-assembly: {managed} not present")

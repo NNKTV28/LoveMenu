@@ -17,7 +17,6 @@ namespace FlyMod.UI
         public static Texture2D Home => GetOrBuild("home", BuildHome);
         public static Texture2D Movement => GetOrBuild("movement", BuildMovement);
         public static Texture2D Teleport => GetOrBuild("teleport", BuildTeleport);
-        public static Texture2D Chat => GetOrBuild("chat", BuildChat);
         public static Texture2D Settings => GetOrBuild("settings", BuildSettings);
         public static Texture2D Warning => GetOrBuild("warning", BuildWarning);
         public static Texture2D Info => GetOrBuild("info", BuildInfo);
@@ -67,16 +66,6 @@ namespace FlyMod.UI
             c.Circle(16, 12, 2.2f);
             c.Line(11.5f, 17, 16, 27);
             c.Line(20.5f, 17, 16, 27);
-        }
-
-        private static void BuildChat(IconCanvas c)
-        {
-            c.Line(6, 6, 26, 6);
-            c.Line(26, 6, 26, 20);
-            c.Line(26, 20, 6, 20);
-            c.Line(6, 20, 6, 6);
-            c.Line(10, 20, 8, 26);
-            c.Line(8, 26, 14, 20);
         }
 
         private static void BuildInfo(IconCanvas c)

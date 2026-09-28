@@ -14,7 +14,7 @@ namespace FlyMod.UI
     // card-based scrollable content area filling the rest.
     internal class MenuUI
     {
-        private enum Section { Home, Movement, Teleports, Chat, Performance, Crashes, Credits, Settings }
+        private enum Section { Home, Movement, Teleports, Performance, Crashes, Credits, Settings }
         private Section _activeSection = Section.Home;
 
         public bool Open { get; private set; }
@@ -35,7 +35,6 @@ namespace FlyMod.UI
         private readonly FreeCamController _freeCamController;
         private readonly SpeedBoostController _speedBoostController;
         private readonly TeleportController _teleportController;
-        private readonly ChatController _chatController;
         private readonly KnockbackImmunityController _knockbackImmunityController;
         private readonly BodyRotationLockController _bodyRotationLockController;
         private readonly CrashWorkaroundController _crashWorkaroundController;
@@ -48,19 +47,15 @@ namespace FlyMod.UI
         private readonly Action _onMenuClosed;
 
         private string _newWaypointNameInput = "";
-        private string _newIgnoreTriggerInput = "";
         private Vector2 _waypointsScrollPosition;
         private Vector2 _movementScrollPosition;
         private Vector2 _settingsScrollPosition;
-        private Vector2 _chatSenderListScrollPosition;
-        private Vector2 _chatHistoryScrollPosition;
         private Vector2 _homeScrollPosition;
-        private string _selectedHistorySenderName;
 
         private const float SidebarWidth = 210f;
         private const float TopBarHeight = 52f;
         private const float ContentPadding = 20f;
-        private const string Version = "v1.0.0";
+        private const string Version = "v1.1.0";
 
         // Drag-to-resize from the bottom-right corner, like a normal window.
         private const float MinWindowWidth = 760f;
@@ -103,7 +98,7 @@ namespace FlyMod.UI
         private float _sectionFadeElapsed = SectionFadeSeconds;
 
         public MenuUI(PlayerContext playerContext, Keybinds keybinds, FlyController flyController, FreeCamController freeCamController,
-            SpeedBoostController speedBoostController, TeleportController teleportController, ChatController chatController,
+            SpeedBoostController speedBoostController, TeleportController teleportController,
             KnockbackImmunityController knockbackImmunityController, BodyRotationLockController bodyRotationLockController,
             CrashWorkaroundController crashWorkaroundController, SystemStatsController systemStatsController,
             PromoPopupController promoPopupController, UiDebugController uiDebugController,
@@ -116,7 +111,6 @@ namespace FlyMod.UI
             _freeCamController = freeCamController;
             _speedBoostController = speedBoostController;
             _teleportController = teleportController;
-            _chatController = chatController;
             _knockbackImmunityController = knockbackImmunityController;
             _bodyRotationLockController = bodyRotationLockController;
             _crashWorkaroundController = crashWorkaroundController;
@@ -133,7 +127,6 @@ namespace FlyMod.UI
                 (Section.Home, "Home", () => Icons.Home),
                 (Section.Movement, "Movement", () => Icons.Movement),
                 (Section.Teleports, "Teleports", () => Icons.Teleport),
-                (Section.Chat, "Chat", () => Icons.Chat),
                 (Section.Performance, "Performance", () => Icons.Movement),
                 (Section.Crashes, "Crashes", () => Icons.Warning),
                 (Section.Credits, "Credits", () => Icons.Info),
@@ -445,7 +438,6 @@ namespace FlyMod.UI
                 case Section.Home: DrawHomeSection(); break;
                 case Section.Movement: DrawMovementSection(); break;
                 case Section.Teleports: DrawTeleportsSection(); break;
-                case Section.Chat: DrawChatSection(); break;
                 case Section.Performance: DrawPerformanceSection(); break;
                 case Section.Crashes: DrawCrashesSection(); break;
                 case Section.Credits: DrawCreditsSection(); break;
@@ -873,125 +865,6 @@ namespace FlyMod.UI
                 _teleportController.GoToFriend(friendPosition);
             GUILayout.EndHorizontal();
             EndCard();
-        }
-
-        // --- Chat -----------------------------------------------------------
-
-        private void DrawChatSection()
-        {
-            GUILayout.BeginHorizontal();
-
-            GUILayout.BeginVertical(GUILayout.Width(_contentWidth / 2f - 12f));
-            DrawChatHistorySubsection();
-            GUILayout.EndVertical();
-
-            GUILayout.BeginVertical();
-            DrawAutoIgnoreSubsection();
-            GUILayout.EndVertical();
-
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawChatHistorySubsection()
-        {
-            GUILayout.Label("Chat History", _styles.Label);
-            GUILayout.Label("Per-person message log for this session (Private tab only).", _styles.Description);
-            GUILayout.Space(6);
-
-            if (_chatController.RecentSenders.Count == 0)
-            {
-                BeginCard();
-                DrawEmptyState("No messages seen yet this session.");
-                EndCard();
-                return;
-            }
-
-            GUILayout.BeginHorizontal();
-
-            GUILayout.BeginVertical(GUILayout.Width(130));
-            _chatSenderListScrollPosition = GUILayout.BeginScrollView(_chatSenderListScrollPosition, GUILayout.Height(300));
-            foreach (string senderName in _chatController.RecentSenders)
-            {
-                bool isSelected = senderName == _selectedHistorySenderName;
-                if (GUILayout.Button(senderName, isSelected ? _styles.ToggleOn : _styles.ToggleOff))
-                    _selectedHistorySenderName = senderName;
-            }
-            GUILayout.EndScrollView();
-            GUILayout.EndVertical();
-
-            GUILayout.BeginVertical(_styles.Card);
-            DrawSelectedSenderThread();
-            GUILayout.EndVertical();
-
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawSelectedSenderThread()
-        {
-            if (_selectedHistorySenderName == null || !_chatController.HistoryBySender.TryGetValue(_selectedHistorySenderName, out List<ChatHistoryEntry> thread))
-            {
-                DrawEmptyState("Pick a name to see messages.");
-                return;
-            }
-
-            _chatHistoryScrollPosition = GUILayout.BeginScrollView(_chatHistoryScrollPosition, GUILayout.Height(280));
-            foreach (ChatHistoryEntry entry in thread)
-            {
-                bool isOwnMessage = entry.SenderName == _playerContext.PlayerName;
-                string speaker = isOwnMessage ? "You" : entry.SenderName;
-                GUILayout.Label(speaker + ":  " + entry.Message, isOwnMessage ? _styles.Label : _styles.Description);
-            }
-            GUILayout.EndScrollView();
-        }
-
-        private void DrawAutoIgnoreSubsection()
-        {
-            BeginCard();
-            GUILayout.Label("Auto-Ignore by Keyword", _styles.Label);
-            GUILayout.Label("Sends the game's own Block/Ignore request when a message contains a trigger word.", _styles.Description);
-            GUILayout.Label("Hook status: " + _chatController.HookStatus, _styles.Meta);
-            GUILayout.Space(6);
-
-            DrawTriggerChips();
-
-            GUILayout.Space(6);
-            GUILayout.BeginHorizontal();
-            _newIgnoreTriggerInput = GUILayout.TextField(_newIgnoreTriggerInput, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("+", _styles.ToggleOn, GUILayout.Width(32)) && !string.IsNullOrWhiteSpace(_newIgnoreTriggerInput))
-            {
-                _chatController.IgnoreTriggerWords.Add(_newIgnoreTriggerInput.Trim());
-                _newIgnoreTriggerInput = "";
-            }
-            GUILayout.EndHorizontal();
-            EndCard();
-        }
-
-        private void DrawTriggerChips()
-        {
-            if (_chatController.IgnoreTriggerWords.Count == 0)
-            {
-                GUILayout.Label("No trigger words yet.", _styles.Description);
-                return;
-            }
-
-            GUILayout.BeginHorizontal();
-            float usedWidth = 0f;
-            float maxWidth = _contentWidth / 2f - 30f;
-            for (int i = _chatController.IgnoreTriggerWords.Count - 1; i >= 0; i--)
-            {
-                string content = _chatController.IgnoreTriggerWords[i] + "  ×";
-                float chipWidth = _styles.Chip.CalcSize(new GUIContent(content)).x + 4f;
-                if (usedWidth + chipWidth > maxWidth && usedWidth > 0f)
-                {
-                    GUILayout.EndHorizontal();
-                    GUILayout.BeginHorizontal();
-                    usedWidth = 0f;
-                }
-                if (GUILayout.Button(content, _styles.Chip))
-                    _chatController.IgnoreTriggerWords.RemoveAt(i);
-                usedWidth += chipWidth;
-            }
-            GUILayout.EndHorizontal();
         }
 
         // --- Performance --------------------------------------------------

@@ -14,7 +14,8 @@ built as a BepInEx plugin. Players want that one: download
 [Releases](https://github.com/NNKTV28/LoveMenu/releases).
 
 Documentation for both lives in the [wiki](https://github.com/NNKTV28/LoveMenu/wiki).
-Licensed under [MIT](LICENSE).
+Licensed under [MIT](LICENSE). Want to report a bug or send a fix? Read
+[CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ## Read this first
 
@@ -244,24 +245,19 @@ Two optimisations matter, both in `lcmem.mono`:
   instantly. Every cached value is re-verified before use, since PIDs get
   reused.
 
-## chat_integration
+## Finding classes by shape
 
-[`lc_patches/chat_integration`](lc_patches/chat_integration) is a worked
-example built on all of the above: it reads the client's chat out of memory
-and writes it to per-conversation log files, verified against the live game.
-See its README.
-
-It also turned up a limitation worth knowing about: **`find_class` cannot
-always find a class by name.** On this client, `ChatChannelInfo`'s name was
-present in the metadata heap but nothing anywhere pointed at it, so no
-MonoClass could be located - even though instances demonstrably existed and
-were reachable through another object's field. A control type resolved fine
-in the same run, so the machinery works; something about how that particular
-name is stored defeats it.
+**`find_class` cannot always find a class by name.** On this client,
+`ChatChannelInfo`'s name was present in the metadata heap but nothing
+anywhere pointed at it, so no MonoClass could be located - even though
+instances demonstrably existed and were reachable through another object's
+field. A control type resolved fine in the same run, so the machinery works;
+something about how that particular name is stored defeats it.
 
 Where it matters, prefer finding objects by *shape* - a known field layout is
 both faster (one sweep, not two) and more robust than a name lookup. See
-`find_message_vtable` in the chat logger for the pattern.
+[`lc_patches/lc_flight/locate.py`](lc_patches/lc_flight/locate.py) for the
+pattern.
 
 ## If you want to write real fixes
 
@@ -280,7 +276,6 @@ README.
 ```
 love_menu_mod/  BepInEx + Harmony plugin (C#) and its launcher; see its README
 lc_patches/
-  chat_integration/   reads in-game chat from memory into log files
   lc_flight/          vertical movement / unstick helper
 lcmem/
   win32.py      ctypes bindings and privilege handling
@@ -293,7 +288,6 @@ lcmem/
 tests/
   test_roundtrip.py   spawns its own target process and verifies scan+write
   test_offline.py     metadata parsing and patch handling, no game needed
-  test_chat.py        chat reader against replica structures
   test_flight.py      flight locator against replica structures
 patches/
   community.json      patch templates

@@ -16,7 +16,6 @@ namespace FlyMod.Settings
         private readonly FlyController _flyController;
         private readonly SpeedBoostController _speedBoostController;
         private readonly TeleportController _teleportController;
-        private readonly ChatController _chatController;
         private readonly KnockbackImmunityController _knockbackImmunityController;
         private readonly BodyRotationLockController _bodyRotationLockController;
         private readonly CrashWorkaroundController _crashWorkaroundController;
@@ -26,14 +25,14 @@ namespace FlyMod.Settings
         private ConfigEntry<KeyCode> _menuKeyEntry, _flyUpKeyEntry, _flyDownKeyEntry;
         private ConfigEntry<float> _flySpeedEntry, _speedMultiplierEntry, _transparencyEntry, _uiScaleEntry;
         private ConfigEntry<int> _themeIndexEntry;
-        private ConfigEntry<string> _waypointsEntry, _ignoreTriggersEntry, _chatHistoryEntry;
+        private ConfigEntry<string> _waypointsEntry;
         private ConfigEntry<bool> _knockbackImmunityEnabledEntry;
         private ConfigEntry<bool> _bodyRotationLockEnabledEntry;
         private ConfigEntry<string> _crashWorkaroundsEntry;
         private ConfigEntry<bool> _hidePromoPopupsEntry;
 
         public PluginSettings(ConfigFile configFile, Keybinds keybinds, FlyController flyController, SpeedBoostController speedBoostController,
-            TeleportController teleportController, ChatController chatController, KnockbackImmunityController knockbackImmunityController,
+            TeleportController teleportController, KnockbackImmunityController knockbackImmunityController,
             BodyRotationLockController bodyRotationLockController, CrashWorkaroundController crashWorkaroundController,
             PromoPopupController promoPopupController, Theme theme)
         {
@@ -42,7 +41,6 @@ namespace FlyMod.Settings
             _flyController = flyController;
             _speedBoostController = speedBoostController;
             _teleportController = teleportController;
-            _chatController = chatController;
             _knockbackImmunityController = knockbackImmunityController;
             _bodyRotationLockController = bodyRotationLockController;
             _crashWorkaroundController = crashWorkaroundController;
@@ -67,12 +65,27 @@ namespace FlyMod.Settings
             _uiScaleEntry = _configFile.Bind("Appearance", "UIScale", 1f);
             _themeIndexEntry = _configFile.Bind("Appearance", "Theme", 0);
             _waypointsEntry = _configFile.Bind("Teleports", "Waypoints", "");
-            _ignoreTriggersEntry = _configFile.Bind("Chat", "IgnoreTriggers", "");
-            _chatHistoryEntry = _configFile.Bind("Chat", "History", "");
             _knockbackImmunityEnabledEntry = _configFile.Bind("Movement", "KnockbackImmunity", false);
             _bodyRotationLockEnabledEntry = _configFile.Bind("Movement", "BodyRotationLock", false);
             _crashWorkaroundsEntry = _configFile.Bind("Crashes", "EnabledWorkarounds", "");
             _hidePromoPopupsEntry = _configFile.Bind("Appearance", "HidePromoPopups", false);
+            RemoveChatSettingsFromOlderVersions();
+        }
+
+        // Older versions stored chat history and ignore words here. BepInEx
+        // keeps unbound entries in the file forever, so bind them once and
+        // remove them to actually delete that data.
+        private void RemoveChatSettingsFromOlderVersions()
+        {
+            var removedChatSettings = new[] { new ConfigDefinition("Chat", "IgnoreTriggers"), new ConfigDefinition("Chat", "History") };
+            bool removedAny = false;
+            foreach (ConfigDefinition definition in removedChatSettings)
+            {
+                _configFile.Bind(definition, "");
+                removedAny |= _configFile.Remove(definition);
+            }
+            if (removedAny)
+                _configFile.Save();
         }
 
         private void ApplyLoadedValuesToControllers()
@@ -87,9 +100,6 @@ namespace FlyMod.Settings
             _theme.Index = _themeIndexEntry.Value;
 
             _teleportController.DecodeWaypoints(_waypointsEntry.Value);
-
-            _chatController.DecodeTriggers(_ignoreTriggersEntry.Value);
-            _chatController.DecodeHistory(_chatHistoryEntry.Value);
 
             _knockbackImmunityController.Enabled = _knockbackImmunityEnabledEntry.Value;
             _bodyRotationLockController.SetEnabled(_bodyRotationLockEnabledEntry.Value);
@@ -119,8 +129,6 @@ namespace FlyMod.Settings
             _uiScaleEntry.Value = _theme.UIScale;
             _themeIndexEntry.Value = _theme.Index;
             _waypointsEntry.Value = _teleportController.EncodeWaypoints();
-            _ignoreTriggersEntry.Value = _chatController.EncodeTriggers();
-            _chatHistoryEntry.Value = _chatController.EncodeHistory();
             _knockbackImmunityEnabledEntry.Value = _knockbackImmunityController.Enabled;
             _bodyRotationLockEnabledEntry.Value = _bodyRotationLockController.Enabled;
             _crashWorkaroundsEntry.Value = string.Join(";",

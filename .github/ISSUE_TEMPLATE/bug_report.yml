@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Love Menu or lcmem doesn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please read the [project rules](https://github.com/NNKTV28/LoveMenu/blob/main/CONTRIBUTING.md#project-rules) first.
+
+        **Remove other players' names and messages from anything you paste.**
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Love Menu (in-game menu)
+        - Love Menu launcher (the .exe)
+        - lcmem (Python tools)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Launcher file name (for example LoveMenu-1.1.0.exe), or the version shown in the menu.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: bepinex
+    attributes:
+      label: BepInEx version
+      description: First lines of BepInEx\LogOutput.log show it. Skip for lcmem.
+      placeholder: "5.4.23.2"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the game with the launcher
+        2. Open the menu with F7
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Drag in `Logs\bepinex_history.log` (next to the launcher) and `BepInEx\LogOutput.log` (game folder), or paste the relevant part.
+        For freezes, attach the newest file from `BepInEx\CrashDumps\`.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I am on the latest release.
+          required: true
+        - label: I removed other players' names and messages from everything I attached.
+          required: true

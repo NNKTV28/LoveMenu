@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation and troubleshooting
+    url: https://github.com/NNKTV28/LoveMenu/wiki/Love-Menu-Troubleshooting
+    about: Check the wiki first. Most setup problems are covered there.
+  - name: Security or privacy problem
+    url: https://github.com/NNKTV28/LoveMenu/blob/main/CONTRIBUTING.md#reporting-a-security-or-privacy-problem
+    about: Do not open a public issue. Email support@nikicoding.com instead.

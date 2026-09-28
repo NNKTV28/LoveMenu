@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a new feature or an improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Requests that break the [project rules](https://github.com/NNKTV28/LoveMenu/blob/main/CONTRIBUTING.md#project-rules) are closed: nothing server-side, nothing that harms or tracks other players, no security bypasses.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Love Menu (in-game menu)
+        - Love Menu launcher (the .exe)
+        - lcmem (Python tools)
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Suggested solution
+      description: How you imagine it working.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is client-side only and does not affect other players.
+          required: true

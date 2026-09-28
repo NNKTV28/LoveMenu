@@ -14,7 +14,7 @@ namespace FlyMod
     // Thin orchestrator: owns the controllers and wires their Tick/Draw
     // calls into Unity's lifecycle. Feature logic lives in Features/, menu
     // rendering in UI/, persistence in Settings/.
-    [BepInPlugin("local.flymod", "Love Menu", "1.0.0")]
+    [BepInPlugin("local.flymod", "Love Menu", "1.1.0")]
     public class LoveMenuPlugin : BaseUnityPlugin
     {
         private readonly PlayerContext _playerContext = new PlayerContext();
@@ -24,7 +24,6 @@ namespace FlyMod
         private FreeCamController _freeCamController;
         private SpeedBoostController _speedBoostController;
         private TeleportController _teleportController;
-        private ChatController _chatController;
         private KnockbackImmunityController _knockbackImmunityController;
         private BodyRotationLockController _bodyRotationLockController;
         private CrashWorkaroundController _crashWorkaroundController;
@@ -95,7 +94,6 @@ namespace FlyMod
             _freeCamController = new FreeCamController();
             _speedBoostController = new SpeedBoostController(_playerContext);
             _teleportController = new TeleportController(_playerContext);
-            _chatController = new ChatController(Logger);
             _knockbackImmunityController = new KnockbackImmunityController(_playerContext);
             _bodyRotationLockController = new BodyRotationLockController();
             _crashWorkaroundController = new CrashWorkaroundController();
@@ -108,12 +106,12 @@ namespace FlyMod
             _wingsHiderController = new WingsHiderController(Logger);
             RegisterCrashWorkarounds();
             _menuUI = new MenuUI(_playerContext, _keybinds, _flyController, _freeCamController,
-                _speedBoostController, _teleportController, _chatController, _knockbackImmunityController,
+                _speedBoostController, _teleportController, _knockbackImmunityController,
                 _bodyRotationLockController, _crashWorkaroundController, _systemStatsController,
                 _promoPopupController, _uiDebugController, _performanceController, _wingsHiderController,
                 _crashDumpController.DumpFolder, SavePluginSettings);
             _pluginSettings = new PluginSettings(Config, _keybinds, _flyController, _speedBoostController,
-                _teleportController, _chatController, _knockbackImmunityController, _bodyRotationLockController,
+                _teleportController, _knockbackImmunityController, _bodyRotationLockController,
                 _crashWorkaroundController, _promoPopupController, _menuUI.Theme);
         }
 
@@ -197,8 +195,6 @@ namespace FlyMod
             HandleMenuToggleKey();
 
             _playerContext.UpdateForThisFrame();
-            if (!_chatController.Hooked)
-                _chatController.TryHook();
 
             TickAllFeatures();
         }
@@ -258,7 +254,6 @@ namespace FlyMod
             _speedBoostController.SetEnabled(false);
             _bodyRotationLockController.SetEnabled(false);
             _pluginSettings.Save();
-            _chatController.Unhook();
             _crashDumpController.Shutdown();
             _systemStatsController.Shutdown();
         }

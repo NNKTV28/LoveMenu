@@ -2,7 +2,7 @@
 
 Looking a class up by name means finding that name in Mono's metadata heap
 and then whatever points at it. That is two wide sweeps, and on this client
-it does not always work (see the chat_integration README). So instead these
+it does not always work (see "Finding classes by shape" in the root README). So instead these
 locators describe what the object *looks like* and search for that:
 
     AvControl     eight input axes in [-2, 2] and a run of 0/1 flags
