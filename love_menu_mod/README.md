@@ -14,8 +14,16 @@ Full documentation: [wiki](https://github.com/NNKTV28/LoveMenu/wiki/Love-Menu).
 2. Download `LoveMenu-<version>.exe` from
    [Releases](https://github.com/NNKTV28/LoveMenu/releases) and run it.
 
-The exe has the plugin embedded. It finds the game through Steam, installs
-the plugin, and starts the game.
+The exe has the plugin embedded. It finds the game (Steam libraries, the
+registry, the running game, common folders), installs the plugin, and starts
+the game. If it cannot find the game, it opens a file picker for `Curio.exe`
+or takes a pasted path. You can also set the path yourself:
+
+```
+LoveMenu-<version>.exe --game-dir "E:\Games\LoveCraft\Application"
+LoveMenu-<version>.exe --reset-path     # forget the saved path and search again
+LoveMenu-<version>.exe --find-game      # print the folder it would use, launch nothing
+```
 
 **The menu only activates when the game is started through the exe.** A
 normal Steam launch leaves the plugin inactive. The launcher writes

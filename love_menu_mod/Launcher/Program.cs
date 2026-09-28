@@ -48,7 +48,8 @@ namespace LoveMenuLauncher
         private static readonly string SavedGameDirectoryPath =
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "LoveMenu.gamedir.txt");
 
-        private static void Main()
+        [STAThread]
+        private static void Main(string[] args)
         {
             Console.Title = "Love Menu Launcher";
             PrintHeader();
@@ -60,7 +61,7 @@ namespace LoveMenuLauncher
                 return;
             }
 
-            GameDirectory = ResolveGameDirectory();
+            GameDirectory = ResolveGameDirectory(args);
             if (GameDirectory == null)
             {
                 ExitWithMessage("Could not find the LoveCraft install.");
@@ -69,6 +70,10 @@ namespace LoveMenuLauncher
             BepInExFolder = Path.Combine(GameDirectory, "BepInEx");
             BepInExLogPath = Path.Combine(BepInExFolder, "LogOutput.log");
             Console.WriteLine("Game folder: " + GameDirectory);
+
+            // Diagnostic: show which folder would be used, change nothing.
+            if (HasArgument(args, "--find-game"))
+                return;
 
             if (!File.Exists(Path.Combine(BepInExFolder, "core", "BepInEx.dll")))
             {
@@ -108,38 +113,162 @@ namespace LoveMenuLauncher
         {
             foreach (string line in lines)
                 Console.WriteLine(line);
+            if (Console.IsInputRedirected)
+                return;
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey(true);
         }
 
-        // Saved path first, then every Steam library, then ask the player.
-        private static string ResolveGameDirectory()
+        // Order: --game-dir argument, saved path, the running game, Steam's
+        // own records, common folders on every drive, then ask the player.
+        private static string ResolveGameDirectory(string[] args)
         {
-            string savedDirectory = ReadSavedGameDirectory();
-            if (IsGameDirectory(savedDirectory))
-                return savedDirectory;
-
-            foreach (string libraryFolder in FindSteamLibraryFolders())
+            string argumentDirectory = ReadGameDirectoryArgument(args);
+            if (argumentDirectory != null)
             {
-                string candidate = FindGameInSteamLibrary(libraryFolder);
-                if (IsGameDirectory(candidate))
-                    return candidate;
+                string normalized = NormalizeGameDirectory(argumentDirectory);
+                if (normalized == null)
+                {
+                    Console.WriteLine("--game-dir does not point at a LoveCraft install: " + argumentDirectory);
+                    return null;
+                }
+                SaveGameDirectory(normalized);
+                Console.WriteLine("Using game folder from --game-dir.");
+                return normalized;
             }
 
-            Console.WriteLine("Could not find LoveCraft automatically.");
-            Console.WriteLine(@"Paste the folder that contains Curio.exe (e.g. D:\SteamLibrary\steamapps\common\LoveCraft\Application):");
-            string typedDirectory = (Console.ReadLine() ?? "").Trim().Trim('"');
-            if (!IsGameDirectory(typedDirectory))
+            if (HasArgument(args, "--reset-path"))
+            {
+                try { File.Delete(SavedGameDirectoryPath); } catch { }
+                Console.WriteLine("Forgot the saved game folder.");
+            }
+            else
+            {
+                string savedDirectory = NormalizeGameDirectory(ReadSavedGameDirectory());
+                if (savedDirectory != null)
+                    return savedDirectory;
+            }
+
+            foreach (var source in AutomaticGameDirectoryCandidates())
+            {
+                string candidate = NormalizeGameDirectory(source.Path);
+                if (candidate == null)
+                    continue;
+                Console.WriteLine("Found LoveCraft (" + source.Description + ").");
+                return candidate;
+            }
+
+            string chosenDirectory = AskPlayerForGameDirectory();
+            if (chosenDirectory != null)
+                SaveGameDirectory(chosenDirectory);
+            return chosenDirectory;
+        }
+
+        private static string ReadGameDirectoryArgument(string[] args)
+        {
+            for (int index = 0; index < args.Length; index++)
+            {
+                if (args[index].Equals("--game-dir", StringComparison.OrdinalIgnoreCase) && index + 1 < args.Length)
+                    return args[index + 1];
+                if (args[index].StartsWith("--game-dir=", StringComparison.OrdinalIgnoreCase))
+                    return args[index].Substring("--game-dir=".Length);
+            }
+            return null;
+        }
+
+        private static bool HasArgument(string[] args, string name)
+        {
+            foreach (string argument in args)
+                if (argument.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private static IEnumerable<(string Path, string Description)> AutomaticGameDirectoryCandidates()
+        {
+            foreach (string runningGamePath in RunningGameDirectories())
+                yield return (runningGamePath, "running game");
+
+            foreach (string libraryFolder in FindSteamLibraryFolders())
+                yield return (FindGameInSteamLibrary(libraryFolder), "Steam library " + libraryFolder);
+
+            yield return (UninstallRegistryInstallLocation(), "Windows uninstall entry");
+
+            foreach (string commonFolder in CommonInstallFolders())
+                yield return (commonFolder, "common folder");
+        }
+
+        // Accepts the Application folder, the LoveCraft folder above it, or
+        // Curio.exe itself, and returns the folder that holds Curio.exe.
+        private static string NormalizeGameDirectory(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
                 return null;
+            path = path.Trim().Trim('"');
             try
             {
-                File.WriteAllText(SavedGameDirectoryPath, typedDirectory);
+                if (File.Exists(path) && Path.GetFileName(path).Equals(GameProcessName + ".exe", StringComparison.OrdinalIgnoreCase))
+                    return Path.GetDirectoryName(Path.GetFullPath(path));
+                if (IsGameDirectory(path))
+                    return Path.GetFullPath(path);
+                string applicationFolder = Path.Combine(path, "Application");
+                if (IsGameDirectory(applicationFolder))
+                    return Path.GetFullPath(applicationFolder);
+            }
+            catch
+            {
+                // malformed path - treat as not found
+            }
+            return null;
+        }
+
+        private static string AskPlayerForGameDirectory()
+        {
+            Console.WriteLine();
+            Console.WriteLine("Could not find LoveCraft automatically.");
+            while (true)
+            {
+                Console.WriteLine("Press Enter to browse for Curio.exe, paste the game folder, or type Q to quit.");
+                Console.WriteLine(@"  (usually ...\steamapps\common\LoveCraft\Application)");
+                Console.Write("> ");
+                string typed = (Console.ReadLine() ?? "q").Trim();
+                if (typed.Equals("q", StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                string chosen = typed.Length == 0 ? BrowseForGameExecutable() : typed;
+                if (chosen == null)
+                    continue;
+
+                string normalized = NormalizeGameDirectory(chosen);
+                if (normalized != null)
+                    return normalized;
+                Console.WriteLine("No Curio.exe there: " + chosen);
+            }
+        }
+
+        private static string BrowseForGameExecutable()
+        {
+            using (var dialog = new System.Windows.Forms.OpenFileDialog
+            {
+                Title = "Find Curio.exe (LoveCraft)",
+                Filter = "LoveCraft (Curio.exe)|Curio.exe|Programs (*.exe)|*.exe",
+                CheckFileExists = true,
+            })
+            {
+                return dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK ? dialog.FileName : null;
+            }
+        }
+
+        private static void SaveGameDirectory(string directory)
+        {
+            try
+            {
+                File.WriteAllText(SavedGameDirectoryPath, directory);
             }
             catch
             {
                 // not fatal - the player just gets asked again next time
             }
-            return typedDirectory;
         }
 
         private static string ReadSavedGameDirectory()
@@ -157,32 +286,111 @@ namespace LoveMenuLauncher
         private static bool IsGameDirectory(string directory) =>
             !string.IsNullOrEmpty(directory) && File.Exists(Path.Combine(directory, GameProcessName + ".exe"));
 
-        private static IEnumerable<string> FindSteamLibraryFolders()
+        private static IEnumerable<string> RunningGameDirectories()
         {
-            string steamPath = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
-            if (string.IsNullOrEmpty(steamPath))
-                yield break;
-            steamPath = steamPath.Replace('/', '\\');
-            yield return steamPath;
-
-            string libraryFoldersFile = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-            if (!File.Exists(libraryFoldersFile))
-                yield break;
-            foreach (Match match in Regex.Matches(File.ReadAllText(libraryFoldersFile), "\"path\"\\s+\"([^\"]+)\""))
-                yield return match.Groups[1].Value.Replace(@"\\", @"\");
+            foreach (Process gameProcess in Process.GetProcessesByName(GameProcessName))
+            {
+                string directory = null;
+                try
+                {
+                    directory = Path.GetDirectoryName(gameProcess.MainModule.FileName);
+                }
+                catch
+                {
+                    // access denied or already exited
+                }
+                if (directory != null)
+                    yield return directory;
+            }
         }
 
-        // appmanifest_<id>.acf names the install folder under steamapps/common;
-        // the game itself lives in its Application subfolder.
+        private static IEnumerable<string> FindSteamLibraryFolders()
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string steamPath in SteamInstallFolders())
+            {
+                if (!seen.Add(steamPath))
+                    continue;
+                yield return steamPath;
+
+                string libraryFoldersFile = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+                if (!File.Exists(libraryFoldersFile))
+                    continue;
+                string libraryFoldersText;
+                try { libraryFoldersText = File.ReadAllText(libraryFoldersFile); } catch { continue; }
+                foreach (Match match in Regex.Matches(libraryFoldersText, "\"path\"\\s+\"([^\"]+)\""))
+                {
+                    string libraryFolder = match.Groups[1].Value.Replace(@"\\", @"\");
+                    if (seen.Add(libraryFolder))
+                        yield return libraryFolder;
+                }
+            }
+        }
+
+        private static IEnumerable<string> SteamInstallFolders()
+        {
+            string[] registryLocations =
+            {
+                @"HKEY_CURRENT_USER\Software\Valve\Steam|SteamPath",
+                @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam|InstallPath",
+                @"HKEY_LOCAL_MACHINE\SOFTWARE\Valve\Steam|InstallPath",
+            };
+            foreach (string location in registryLocations)
+            {
+                string[] keyAndValue = location.Split('|');
+                string steamPath = null;
+                try { steamPath = Registry.GetValue(keyAndValue[0], keyAndValue[1], null) as string; } catch { }
+                if (!string.IsNullOrEmpty(steamPath))
+                    yield return steamPath.Replace('/', '\\').TrimEnd('\\');
+            }
+        }
+
+        // appmanifest_<id>.acf names the install folder under steamapps/common.
         private static string FindGameInSteamLibrary(string libraryFolder)
         {
             string manifestPath = Path.Combine(libraryFolder, "steamapps", "appmanifest_" + SteamAppId + ".acf");
             if (!File.Exists(manifestPath))
                 return null;
-            Match installDir = Regex.Match(File.ReadAllText(manifestPath), "\"installdir\"\\s+\"([^\"]+)\"");
+            Match installDir;
+            try { installDir = Regex.Match(File.ReadAllText(manifestPath), "\"installdir\"\\s+\"([^\"]+)\""); } catch { return null; }
             if (!installDir.Success)
                 return null;
-            return Path.Combine(libraryFolder, "steamapps", "common", installDir.Groups[1].Value, "Application");
+            return Path.Combine(libraryFolder, "steamapps", "common", installDir.Groups[1].Value);
+        }
+
+        // Steam registers every installed game for Add/Remove Programs.
+        private static string UninstallRegistryInstallLocation()
+        {
+            string[] uninstallKeys =
+            {
+                @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App " + SteamAppId,
+                @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Steam App " + SteamAppId,
+            };
+            foreach (string key in uninstallKeys)
+            {
+                string installLocation = null;
+                try { installLocation = Registry.GetValue(key, "InstallLocation", null) as string; } catch { }
+                if (!string.IsNullOrEmpty(installLocation))
+                    return installLocation;
+            }
+            return null;
+        }
+
+        // Last resort before asking: the usual Steam library spots on each drive.
+        private static IEnumerable<string> CommonInstallFolders()
+        {
+            string[] librariesOnDrive =
+            {
+                "SteamLibrary", "Steam", @"Program Files (x86)\Steam", @"Program Files\Steam",
+                @"Games\Steam", @"Games\SteamLibrary",
+            };
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            {
+                if (drive.DriveType != DriveType.Fixed || !drive.IsReady)
+                    continue;
+                foreach (string library in librariesOnDrive)
+                    yield return Path.Combine(drive.RootDirectory.FullName, library, "steamapps", "common", "LoveCraft");
+            }
         }
 
         // The plugin ships inside this exe, so one file is the whole install.
