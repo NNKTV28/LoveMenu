@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <ApplicationIcon>app_icon.ico</ApplicationIcon>
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
   </PropertyGroup>
 
   <!-- The launcher installs the plugin itself, so the plugin DLL is
@@ -20,6 +20,10 @@
     <!-- Folder picker when the game can't be found automatically. -->
     <Reference Include="System.Windows.Forms" />
     <EmbeddedResource Include="$(PluginDll)" LogicalName="FlyMod.dll" />
+    <!-- Official BepInEx 5 x64 release zip (MIT, see ThirdParty/BepInEx-LICENSE.txt),
+         installed automatically when the game folder doesn't have it yet. -->
+    <EmbeddedResource Include="ThirdParty\BepInEx_win_x64_5.4.23.5.zip" LogicalName="BepInEx.zip" />
+    <Reference Include="System.IO.Compression" />
   </ItemGroup>
 
   <Target Name="RequirePluginDll" BeforeTargets="BeforeBuild" Condition="!Exists('$(PluginDll)')">

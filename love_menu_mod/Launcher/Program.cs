@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -32,6 +33,8 @@ namespace LoveMenuLauncher
         private const string GameProcessName = "Curio";
         private const string PluginResourceName = "FlyMod.dll";
         private const string LaunchMarkerFileName = "LoveMenu.launch";
+        private const string BepInExResourceName = "BepInEx.zip";
+        private const string BundledBepInExVersion = "5.4.23.5";
 
         private static string GameDirectory;
         private static string BepInExFolder;
@@ -75,10 +78,23 @@ namespace LoveMenuLauncher
             if (HasArgument(args, "--find-game"))
                 return;
 
-            if (!File.Exists(Path.Combine(BepInExFolder, "core", "BepInEx.dll")))
+            if (!EnsureBepInExInstalled(args))
             {
-                ExitWithMessage("BepInEx 5 is not installed in the game folder.",
-                    "Install BepInEx 5 (x64) into " + GameDirectory + " and run the game once, then try again.");
+                ExitWithMessage("BepInEx 5 is required. Nothing was changed in the game folder.");
+                return;
+            }
+
+            // Install only: set everything up without touching a running game.
+            if (HasArgument(args, "--setup-only"))
+            {
+                if (GameIsRunningFrom(GameDirectory))
+                {
+                    ExitWithMessage("Close the game first - it keeps the plugin file locked.");
+                    return;
+                }
+                ExitWithMessage(InstallEmbeddedPlugin()
+                    ? "Setup complete. Run this exe again without --setup-only to play."
+                    : "Could not install the Love Menu plugin.");
                 return;
             }
 
@@ -102,6 +118,77 @@ namespace LoveMenuLauncher
             Console.WriteLine("being saved to Logs\\bepinex_history.log):");
             Console.WriteLine("-------------------------------------------------");
             TailLogForever();
+        }
+
+        // BepInEx 5.4.23.5 (x64) ships inside this exe as the official
+        // release zip, so a first-time player needs nothing else. Asks
+        // before writing into the game folder; --yes skips the question.
+        private static bool EnsureBepInExInstalled(string[] args)
+        {
+            if (File.Exists(Path.Combine(BepInExFolder, "core", "BepInEx.dll")))
+                return true;
+
+            Console.WriteLine();
+            Console.WriteLine("BepInEx 5 (the mod loader Love Menu needs) is not installed yet.");
+            if (!HasArgument(args, "--yes") && !Console.IsInputRedirected)
+            {
+                Console.Write("Install BepInEx " + BundledBepInExVersion + " into the game folder now? [Y/n] ");
+                string answer = (Console.ReadLine() ?? "").Trim();
+                if (answer.Length > 0 && !answer.StartsWith("y", StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            try
+            {
+                int filesWritten = ExtractBundledBepInEx();
+                Console.WriteLine("Installed BepInEx " + BundledBepInExVersion + " (" + filesWritten + " files).");
+                return File.Exists(Path.Combine(BepInExFolder, "core", "BepInEx.dll"));
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine("BepInEx install failed: " + exception.Message);
+                return false;
+            }
+        }
+
+        private static int ExtractBundledBepInEx()
+        {
+            string gameRoot = Path.GetFullPath(GameDirectory).TrimEnd('\\') + "\\";
+            int filesWritten = 0;
+            using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream(BepInExResourceName))
+            {
+                if (resource == null)
+                    throw new InvalidOperationException("this launcher was built without BepInEx embedded");
+                using (var archive = new ZipArchive(resource, ZipArchiveMode.Read))
+                {
+                    foreach (ZipArchiveEntry entry in archive.Entries)
+                    {
+                        string targetPath = Path.GetFullPath(Path.Combine(gameRoot, entry.FullName));
+                        // Never write outside the game folder, whatever the zip says.
+                        if (!targetPath.StartsWith(gameRoot, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (entry.Name.Length == 0)
+                        {
+                            Directory.CreateDirectory(targetPath);
+                            continue;
+                        }
+                        Directory.CreateDirectory(Path.GetDirectoryName(targetPath));
+                        entry.ExtractToFile(targetPath, overwrite: true);
+                        filesWritten++;
+                    }
+                }
+            }
+            Directory.CreateDirectory(Path.Combine(BepInExFolder, "plugins"));
+            return filesWritten;
+        }
+
+        private static bool GameIsRunningFrom(string directory)
+        {
+            string target = Path.GetFullPath(directory).TrimEnd('\\');
+            foreach (string runningDirectory in RunningGameDirectories())
+                if (string.Equals(Path.GetFullPath(runningDirectory).TrimEnd('\\'), target, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
         }
 
         // Compared by our own process name, so a renamed release exe

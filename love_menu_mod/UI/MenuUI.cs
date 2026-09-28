@@ -54,7 +54,7 @@ namespace FlyMod.UI
         private const float SidebarWidth = 210f;
         private const float TopBarHeight = 52f;
         private const float ContentPadding = 20f;
-        private const string Version = "v1.1.1";
+        private const string Version = "v1.2.0";
 
         // Drag-to-resize from the bottom-right corner, like a normal window.
         private const float MinWindowWidth = 760f;

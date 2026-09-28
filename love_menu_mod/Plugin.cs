@@ -14,7 +14,7 @@ namespace FlyMod
     // Thin orchestrator: owns the controllers and wires their Tick/Draw
     // calls into Unity's lifecycle. Feature logic lives in Features/, menu
     // rendering in UI/, persistence in Settings/.
-    [BepInPlugin("local.flymod", "Love Menu", "1.1.1")]
+    [BepInPlugin("local.flymod", "Love Menu", "1.2.0")]
     public class LoveMenuPlugin : BaseUnityPlugin
     {
         private readonly PlayerContext _playerContext = new PlayerContext();
