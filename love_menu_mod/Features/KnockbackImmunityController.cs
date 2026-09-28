@@ -1,113 +1,220 @@
+using System.Reflection;
+using HarmonyLib;
 using UnityEngine;
 using VWW.Clients.Curio.Avatar;
+using VWW.Clients.Curio.Scene.Links;
+using VWW.CoreLibs.DOM;
 using FlyMod.Core;
 
 namespace FlyMod.Features
 {
-    // Other players' snowballs (and possibly other effects) knock the
-    // avatar back via a direct position teleport, not a physics
-    // impulse - confirmed live: Rigidbody velocity, MotorControl.MoveVector
-    // and VerticalVel all read zero at the exact frame position jumped
-    // several units. With no force channel to cancel, immunity works the
-    // same way Fly does: notice the position changed more than a frame of
-    // normal movement could explain, and simply set it back.
+    // Measured live: a snowball / thrown-ball hit is not a teleport or a
+    // physics collision. The avatar slides over several frames (~4.5 u/s,
+    // rigidbody velocity non-zero, root motion on) while the player presses
+    // nothing. Earlier attempts watched for one-frame jumps and for server
+    // position updates and saw neither.
     //
-    // PlayerContext.WasTeleportedByUsThisFrame distinguishes an external
-    // knock-back from our own deliberate teleports (waypoints, friend
-    // teleport, unstick, landing after fly) so this doesn't fight them.
+    // So immunity works from the player's intent instead of the cause:
+    // while there is no movement input, the avatar's horizontal position is
+    // held. Instant jumps (teleports) re-anchor instead of being fought.
     internal class KnockbackImmunityController
     {
-        // Compared against speed (units/second), not raw per-frame distance
-        // - a distance-only check inflates during any frame-rate hitch
-        // (bigger Time.deltaTime = more distance for perfectly normal
-        // movement), which was wrongly snapping the avatar back on lag
-        // spikes. The real snowball knockback measured live was ~3.47 units
-        // in a single ~1/60s frame - roughly 200 u/s, an order of magnitude
-        // above anything legitimate movement (even 4x speed boost) reaches.
-        private const float SuspiciousSpeedUnitsPerSecond = 45f;
-
-        private readonly PlayerContext _playerContext;
-        public bool Enabled;
-
-        private Vector3? _lastKnownGoodPosition;
-        private AvControlReference _lastSeenAvatar;
-
-        // Wraps the avatar reference so we can detect "this is a different
-        // avatar instance than last frame" (e.g. after a world change) and
-        // reset our baseline instead of treating the new spawn point as a
-        // knock-back.
-        private struct AvControlReference
+        public bool Enabled
         {
-            public readonly object Value;
-            public AvControlReference(object value) => Value = value;
-            public static bool operator ==(AvControlReference a, AvControlReference b) => Equals(a.Value, b.Value);
-            public static bool operator !=(AvControlReference a, AvControlReference b) => !Equals(a.Value, b.Value);
-            public override bool Equals(object obj) => obj is AvControlReference other && Equals(Value, other.Value);
-            public override int GetHashCode() => Value?.GetHashCode() ?? 0;
+            get => KnockbackImmunityPatch.Enabled;
+            set
+            {
+                if (value != KnockbackImmunityPatch.Enabled)
+                    DebugLog.Info("Knockback immunity " + (value ? "ON" : "OFF"));
+                KnockbackImmunityPatch.Enabled = value;
+            }
         }
 
-        public KnockbackImmunityController(PlayerContext playerContext)
-        {
-            _playerContext = playerContext;
-        }
-
+        // The guard lives on the GameObject that owns the avatar's Rigidbody,
+        // so it runs in the same physics step that moves it.
         public void Tick(bool weAreDrivingMovementOurselves)
         {
-            if (_playerContext.Avatar == null)
-                return;
+            KnockbackIdleAnchor.OurMovementActive = weAreDrivingMovementOurselves;
 
-            Transform avatarTransform = _playerContext.Avatar.transform;
-            var currentAvatarRef = new AvControlReference(_playerContext.Avatar);
-
-            if (AvatarChangedSinceLastFrame(currentAvatarRef) || !_lastKnownGoodPosition.HasValue)
+            Rigidbody avatarRigidbody = null;
+            try
             {
-                ResetBaseline(currentAvatarRef, avatarTransform.position);
-                return;
+                avatarRigidbody = AvControl.AvatarRigidbody;
             }
-
-            bool exemptThisFrame = weAreDrivingMovementOurselves || _playerContext.WasTeleportedByUsThisFrame;
-            if (exemptThisFrame)
+            catch
             {
-                _lastKnownGoodPosition = avatarTransform.position;
-                return;
+                // avatar not spawned yet
             }
+            if (avatarRigidbody != null && avatarRigidbody.GetComponent<KnockbackIdleAnchor>() == null)
+                avatarRigidbody.gameObject.AddComponent<KnockbackIdleAnchor>();
+        }
+    }
 
-            RevertIfKnockedBack(avatarTransform);
+    internal class KnockbackIdleAnchor : MonoBehaviour
+    {
+        public static bool OurMovementActive;
+
+        // Anything bigger in one step is a teleport (portal, waypoint,
+        // unstick), not a shove.
+        private const float TeleportDistance = 1.5f;
+        private const float HoldTolerance = 0.02f;
+        // Walking decelerates for a moment after the keys are released.
+        private const float GraceAfterInputSeconds = 0.4f;
+
+        private static readonly FieldInfo AxisHField = AccessTools.Field(typeof(AvControl), "AxisH");
+        private static readonly FieldInfo AxisVField = AccessTools.Field(typeof(AvControl), "AxisV");
+        private static readonly FieldInfo AxisUField = AccessTools.Field(typeof(AvControl), "AxisU");
+
+        private Rigidbody _rigidbody;
+        private Vector3 _anchor;
+        private float _lastInputTime;
+        private float _nextLogTime;
+        private string _lastSkipReason = "";
+        private float _driftWindowEnd;
+        private Vector3 _driftWindowStart;
+
+        private void Awake()
+        {
+            _rigidbody = GetComponent<Rigidbody>();
+            _anchor = _rigidbody.position;
         }
 
-        private bool AvatarChangedSinceLastFrame(AvControlReference currentAvatarRef) => currentAvatarRef != _lastSeenAvatar;
-
-        private void ResetBaseline(AvControlReference avatarRef, Vector3 currentPosition)
+        private void FixedUpdate()
         {
-            _lastSeenAvatar = avatarRef;
-            _lastKnownGoodPosition = currentPosition;
+            if (!ShouldHold())
+            {
+                _anchor = _rigidbody.position;
+                return;
+            }
+
+            Vector3 position = _rigidbody.position;
+            Vector3 horizontalOffset = new Vector3(position.x - _anchor.x, 0f, position.z - _anchor.z);
+            if (horizontalOffset.magnitude > TeleportDistance)
+            {
+                _anchor = position;
+                return;
+            }
+            if (horizontalOffset.magnitude < HoldTolerance)
+                return;
+
+            _rigidbody.position = new Vector3(_anchor.x, position.y, _anchor.z);
+            Vector3 velocity = _rigidbody.linearVelocity;
+            _rigidbody.linearVelocity = new Vector3(0f, velocity.y, 0f);
+
+            if (horizontalOffset.magnitude > 0.1f && Time.unscaledTime >= _nextLogTime)
+            {
+                _nextLogTime = Time.unscaledTime + 1f;
+                DebugLog.Info("Knockback immunity: held position against a push of " +
+                    horizontalOffset.magnitude.ToString("0.00") + " units");
+            }
         }
 
-        private void RevertIfKnockedBack(Transform avatarTransform)
+        private bool ShouldHold()
         {
-            float distanceMoved = Vector3.Distance(_lastKnownGoodPosition.Value, avatarTransform.position);
-            float speed = distanceMoved / Mathf.Max(Time.deltaTime, 0.0001f);
-            bool looksLikeKnockback = speed > SuspiciousSpeedUnitsPerSecond;
-
-            if (looksLikeKnockback && Enabled)
+            string skipReason = SkipReason();
+            if (skipReason != _lastSkipReason)
             {
-                DebugLog.Info("Knockback immunity reverting: " + distanceMoved.ToString("0.00") +
-                    " units in " + Time.deltaTime.ToString("0.000") + "s (" + speed.ToString("0") + " u/s)");
-                MoveAvatarBackTo(avatarTransform, _lastKnownGoodPosition.Value);
+                // Temporary diagnostic: which state the avatar is in when a hit lands.
+                DebugLog.Info("Knockback immunity state: " + (skipReason.Length == 0 ? "holding" : "not holding - " + skipReason));
+                _lastSkipReason = skipReason;
             }
-            else
-            {
-                _lastKnownGoodPosition = avatarTransform.position;
-            }
+            return skipReason.Length == 0;
         }
 
-        // The avatar is driven by a Rigidbody, so writing transform.position
-        // alone gets overwritten from the body's own pose on the next
-        // physics step and the revert silently does nothing. Writing the
-        // Rigidbody's position (and killing the velocity that's still
-        // carrying the shove) is what actually sticks.
-        private static void MoveAvatarBackTo(Transform avatarTransform, Vector3 position)
+        private string SkipReason()
         {
+            if (!KnockbackImmunityPatch.Enabled)
+                return "off";
+            if (OurMovementActive)
+                return "flying";
+            if (_rigidbody.isKinematic)
+                return "rigidbody kinematic";
+
+            AvControl avatar = AvControl.Self;
+            if (avatar == null)
+                return "no avatar";
+            // Sitting, emotes and scripted poses place the avatar on purpose.
+            if (avatar.PositionLocked)
+                return "position locked";
+
+            if (HasMovementInput(avatar))
+                _lastInputTime = Time.time;
+            if (Time.time - _lastInputTime <= GraceAfterInputSeconds)
+                return "movement input";
+            return "";
+        }
+
+        // Temporary diagnostic: any real displacement, whatever the state.
+        private void LateUpdate()
+        {
+            if (Time.unscaledTime < _driftWindowEnd)
+                return;
+            Vector3 position = transform.position;
+            float drift = new Vector3(position.x - _driftWindowStart.x, 0f, position.z - _driftWindowStart.z).magnitude;
+            if (drift > 0.5f)
+                DebugLog.Info("Knockback immunity: moved " + drift.ToString("0.00") + " units in 0.25s (state: " +
+                    (_lastSkipReason.Length == 0 ? "holding" : _lastSkipReason) + ", velocity " +
+                    _rigidbody.linearVelocity.magnitude.ToString("0.00") + ", rigidbody at " + _rigidbody.position + ", transform at " + position + ")");
+            _driftWindowStart = position;
+            _driftWindowEnd = Time.unscaledTime + 0.25f;
+        }
+
+        private static bool HasMovementInput(AvControl avatar)
+        {
+            if (AxisHField == null || AxisVField == null || AxisUField == null)
+                return true; // can't tell - never fight the player
+            return (float)AxisHField.GetValue(avatar) != 0f
+                || (float)AxisVField.GetValue(avatar) != 0f
+                || (float)AxisUField.GetValue(avatar) != 0f;
+        }
+    }
+
+    // Second layer: a server script can also move our avatar by sending it a
+    // new "Position", which DOMTransformLink.ApplyUpdate applies instantly
+    // (the player avatar never interpolates). Small moves are undone;
+    // larger ones are teleports and are allowed.
+    [HarmonyPatch(typeof(DOMTransformLink), "ApplyUpdate")]
+    internal static class KnockbackImmunityPatch
+    {
+        public static bool Enabled;
+
+        private const float MaxKnockbackDistance = 10f;
+        private const float MinKnockbackDistance = 0.05f;
+
+        private static Vector3 _positionBeforeUpdate;
+        private static bool _guardingThisUpdate;
+
+        private static void Prefix(DOMTransformLink __instance, DOMPropertyItem update)
+        {
+            _guardingThisUpdate = false;
+            if (!Enabled || update == null || update.Name != "Position" || !update.Sender.HasValue)
+                return;
+            if (!(__instance is DOMControllerLink controllerLink) || !controllerLink.IsPlayerAvatar)
+                return;
+
+            AvControl avatar = AvControl.Self;
+            if (avatar == null || avatar.PositionLocked)
+                return;
+
+            _positionBeforeUpdate = avatar.transform.position;
+            _guardingThisUpdate = true;
+        }
+
+        private static void Postfix()
+        {
+            if (!_guardingThisUpdate)
+                return;
+            _guardingThisUpdate = false;
+
+            AvControl avatar = AvControl.Self;
+            if (avatar == null)
+                return;
+
+            float distanceMoved = Vector3.Distance(_positionBeforeUpdate, avatar.transform.position);
+            if (distanceMoved < MinKnockbackDistance || distanceMoved > MaxKnockbackDistance)
+                return;
+
+            DebugLog.Info("Knockback immunity: blocked server push of " + distanceMoved.ToString("0.00") + " units");
             Rigidbody avatarRigidbody = null;
             try
             {
@@ -117,13 +224,9 @@ namespace FlyMod.Features
             {
                 // helper not ready - fall through to the transform write
             }
-
             if (avatarRigidbody != null)
-            {
-                avatarRigidbody.position = position;
-                avatarRigidbody.linearVelocity = Vector3.zero;
-            }
-            avatarTransform.position = position;
+                avatarRigidbody.position = _positionBeforeUpdate;
+            avatar.transform.position = _positionBeforeUpdate;
         }
     }
 }

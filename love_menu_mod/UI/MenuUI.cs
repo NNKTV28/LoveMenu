@@ -32,7 +32,6 @@ namespace FlyMod.UI
         private readonly PlayerContext _playerContext;
         private readonly Keybinds _keybinds;
         private readonly FlyController _flyController;
-        private readonly FreeCamController _freeCamController;
         private readonly SpeedBoostController _speedBoostController;
         private readonly TeleportController _teleportController;
         private readonly KnockbackImmunityController _knockbackImmunityController;
@@ -55,7 +54,7 @@ namespace FlyMod.UI
         private const float SidebarWidth = 210f;
         private const float TopBarHeight = 52f;
         private const float ContentPadding = 20f;
-        private const string Version = "v1.1.0";
+        private const string Version = "v1.1.1";
 
         // Drag-to-resize from the bottom-right corner, like a normal window.
         private const float MinWindowWidth = 760f;
@@ -97,7 +96,7 @@ namespace FlyMod.UI
         private Section _lastDrawnSection = Section.Home;
         private float _sectionFadeElapsed = SectionFadeSeconds;
 
-        public MenuUI(PlayerContext playerContext, Keybinds keybinds, FlyController flyController, FreeCamController freeCamController,
+        public MenuUI(PlayerContext playerContext, Keybinds keybinds, FlyController flyController,
             SpeedBoostController speedBoostController, TeleportController teleportController,
             KnockbackImmunityController knockbackImmunityController, BodyRotationLockController bodyRotationLockController,
             CrashWorkaroundController crashWorkaroundController, SystemStatsController systemStatsController,
@@ -108,7 +107,6 @@ namespace FlyMod.UI
             _playerContext = playerContext;
             _keybinds = keybinds;
             _flyController = flyController;
-            _freeCamController = freeCamController;
             _speedBoostController = speedBoostController;
             _teleportController = teleportController;
             _knockbackImmunityController = knockbackImmunityController;
@@ -485,7 +483,6 @@ namespace FlyMod.UI
 
             GUILayout.BeginHorizontal();
             DrawStatusCard("Fly", _flyController.Flying ? "Enabled" : "Disabled", _flyController.Flying);
-            DrawStatusCard("Free Camera", _freeCamController.Active ? "Enabled" : "Disabled", _freeCamController.Active);
             DrawStatusCard("Movement Speed", _speedBoostController.Enabled ? _speedBoostController.Multiplier.ToString("0.0") + "x" : "Disabled", _speedBoostController.Enabled);
             DrawStatusCard("Knockback Immunity", _knockbackImmunityController.Enabled ? "Enabled" : "Disabled", _knockbackImmunityController.Enabled);
             GUILayout.EndHorizontal();
@@ -628,17 +625,6 @@ namespace FlyMod.UI
             BeginCard();
             CardHeaderRow("Lock Body Rotation", "Stops right-click camera drag from also turning your avatar",
                 _bodyRotationLockController.Enabled, () => _bodyRotationLockController.SetEnabled(!_bodyRotationLockController.Enabled));
-            EndCard();
-
-            BeginCard();
-            CardHeaderRow("Free Camera", "Detached camera; avatar stays where it is",
-                _freeCamController.Active, _freeCamController.Toggle);
-            if (_freeCamController.Active)
-            {
-                GUILayout.Space(4);
-                if (GUILayout.Button("Reset to start position", _styles.ToggleOff))
-                    _freeCamController.ResetToStart();
-            }
             EndCard();
 
             BeginCard();

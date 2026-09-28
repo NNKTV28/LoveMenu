@@ -86,6 +86,10 @@
       <HintPath>$(ManagedDir)\VWW.CoreLibs.ClientAPI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="VWW.CoreLibs.DOM">
+      <HintPath>$(ManagedDir)\VWW.CoreLibs.DOM.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="VWW.CoreLibs.Network">
       <HintPath>$(ManagedDir)\VWW.CoreLibs.Network.dll</HintPath>
       <Private>false</Private>

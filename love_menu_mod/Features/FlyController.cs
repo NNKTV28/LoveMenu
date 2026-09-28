@@ -91,10 +91,7 @@ namespace FlyMod.Features
                 (foundGround ? " hit " + groundHit.point + " on " + groundHit.collider.name : " found nothing"));
 
             if (foundGround)
-            {
                 avatarTransform.position = groundHit.point + Vector3.up * 0.05f;
-                _playerContext.MarkIntentionalTeleport();
-            }
         }
 
         public void Unstick()
@@ -103,10 +100,9 @@ namespace FlyMod.Features
                 return;
             Reflect.ZeroVerticalVelocity();
             _playerContext.Avatar.transform.position += Vector3.up * 3f;
-            _playerContext.MarkIntentionalTeleport();
         }
 
-        public void Tick(bool typingInChat, bool freeCamActive, KeyCode upKey, KeyCode downKey)
+        public void Tick(bool typingInChat, KeyCode upKey, KeyCode downKey)
         {
             if (!Flying || _playerContext.Avatar == null)
                 return;
@@ -115,7 +111,7 @@ namespace FlyMod.Features
 
             Vector3 movementThisFrame = typingInChat
                 ? Vector3.zero
-                : ReadFlightMovementInput(freeCamActive, upKey, downKey);
+                : ReadFlightMovementInput(upKey, downKey);
 
             if (movementThisFrame != Vector3.zero)
                 _desiredPosition += movementThisFrame.normalized * Speed * Time.deltaTime;
@@ -132,7 +128,7 @@ namespace FlyMod.Features
                 _avatarRigidbody.linearVelocity = Vector3.zero;
         }
 
-        private static Vector3 ReadFlightMovementInput(bool freeCamActive, KeyCode upKey, KeyCode downKey)
+        private static Vector3 ReadFlightMovementInput(KeyCode upKey, KeyCode downKey)
         {
             float verticalDirection = 0f;
             if (Input.GetKey(upKey)) verticalDirection = 1f;
@@ -140,7 +136,7 @@ namespace FlyMod.Features
             Vector3 movement = Vector3.up * verticalDirection;
 
             Camera activeCamera = Camera.main;
-            if (activeCamera != null && !freeCamActive)
+            if (activeCamera != null)
                 movement += ReadCameraRelativeHorizontalInput(activeCamera);
 
             return movement;

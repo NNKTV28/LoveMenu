@@ -56,7 +56,6 @@ namespace FlyMod.Features
                 return;
             _playerContext.Avatar.transform.position = targetPosition;
             Reflect.ZeroVerticalVelocity();
-            _playerContext.MarkIntentionalTeleport();
         }
 
         public void GoToFriend(Vector3 friendPosition) => GoToPosition(friendPosition + Vector3.left * 1.5f);

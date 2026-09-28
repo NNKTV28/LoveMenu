@@ -14,14 +14,13 @@ namespace FlyMod
     // Thin orchestrator: owns the controllers and wires their Tick/Draw
     // calls into Unity's lifecycle. Feature logic lives in Features/, menu
     // rendering in UI/, persistence in Settings/.
-    [BepInPlugin("local.flymod", "Love Menu", "1.1.0")]
+    [BepInPlugin("local.flymod", "Love Menu", "1.1.1")]
     public class LoveMenuPlugin : BaseUnityPlugin
     {
         private readonly PlayerContext _playerContext = new PlayerContext();
         private readonly Keybinds _keybinds = new Keybinds();
 
         private FlyController _flyController;
-        private FreeCamController _freeCamController;
         private SpeedBoostController _speedBoostController;
         private TeleportController _teleportController;
         private KnockbackImmunityController _knockbackImmunityController;
@@ -52,6 +51,7 @@ namespace FlyMod
             }
 
             DebugLog.Init(Logger);
+            ConsoleQuickEditGuard.Apply();
             DynamicBonesCrashGuardPatch.Init(Logger);
             ApplyHarmonyPatches();
             CreateControllers();
@@ -91,10 +91,9 @@ namespace FlyMod
         private void CreateControllers()
         {
             _flyController = new FlyController(_playerContext);
-            _freeCamController = new FreeCamController();
             _speedBoostController = new SpeedBoostController(_playerContext);
             _teleportController = new TeleportController(_playerContext);
-            _knockbackImmunityController = new KnockbackImmunityController(_playerContext);
+            _knockbackImmunityController = new KnockbackImmunityController();
             _bodyRotationLockController = new BodyRotationLockController();
             _crashWorkaroundController = new CrashWorkaroundController();
             _systemStatsController = new SystemStatsController();
@@ -105,7 +104,7 @@ namespace FlyMod
             _performanceController = new PerformanceController(Logger, _systemStatsController);
             _wingsHiderController = new WingsHiderController(Logger);
             RegisterCrashWorkarounds();
-            _menuUI = new MenuUI(_playerContext, _keybinds, _flyController, _freeCamController,
+            _menuUI = new MenuUI(_playerContext, _keybinds, _flyController,
                 _speedBoostController, _teleportController, _knockbackImmunityController,
                 _bodyRotationLockController, _crashWorkaroundController, _systemStatsController,
                 _promoPopupController, _uiDebugController, _performanceController, _wingsHiderController,
@@ -134,6 +133,15 @@ namespace FlyMod
                     "the old ones - exhausted Unity's D3D11 resource table over a session (\"Resource ID out of " +
                     "range\", d3d11 out-of-memory in the player log). Fixed: styles now only rebuild, and only " +
                     "replace their textures, when the theme actually changes.",
+            });
+
+            _crashWorkaroundController.ConfirmedFixes.Add(new ConfirmedCrashFix
+            {
+                Name = "Console click freeze",
+                Description = "Clicking inside the BepInEx console window starts a text selection, and Windows " +
+                    "blocks every write to that console until it ends - the game logs there from the main thread, " +
+                    "so it froze (hang dump: main thread stuck in WriteFile). Fixed: QuickEdit is turned off on " +
+                    "startup, so a click can no longer start a selection.",
             });
         }
 
@@ -199,24 +207,6 @@ namespace FlyMod
             TickAllFeatures();
         }
 
-        // Whatever code applies an external knockback runs in Update() too,
-        // and component Update order between us and it isn't guaranteed -
-        // same class of bug as the body-rotation lock earlier. Reverting in
-        // LateUpdate (after every component's Update this frame) makes sure
-        // our correction is the last write before render, so it can't be
-        // silently overwritten by the game's own knockback code that frame.
-        private void LateUpdate()
-        {
-            bool weAreDrivingMovementOurselves = _flyController.Flying || _speedBoostController.Enabled;
-            _knockbackImmunityController.Tick(weAreDrivingMovementOurselves);
-
-            // Cleared here, not at the end of Update: knockback immunity
-            // reads this flag from LateUpdate, so clearing it in Update
-            // meant it was always false by then and our own waypoint/friend
-            // teleports looked like knockbacks and got reverted.
-            _playerContext.ClearIntentionalTeleportFlag();
-        }
-
         private void HandleMenuToggleKey()
         {
             if (!Input.GetKeyDown(_keybinds.MenuKey))
@@ -230,9 +220,8 @@ namespace FlyMod
 
         private void TickAllFeatures()
         {
-            _flyController.Tick(_playerContext.TypingInChat, _freeCamController.Active, _keybinds.FlyUpKey, _keybinds.FlyDownKey);
-            if (!_playerContext.TypingInChat)
-                _freeCamController.Tick(_keybinds.FlyUpKey, _keybinds.FlyDownKey, _flyController.Speed);
+            _flyController.Tick(_playerContext.TypingInChat, _keybinds.FlyUpKey, _keybinds.FlyDownKey);
+            _knockbackImmunityController.Tick(_flyController.Flying);
             _speedBoostController.Tick(_playerContext.TypingInChat, _flyController.Flying);
             _systemStatsController.Tick();
             _promoPopupController.Tick(Time.deltaTime, _playerContext.Avatar != null, _playerContext.TypingInChat);
@@ -250,7 +239,6 @@ namespace FlyMod
                 return;
 
             _flyController.SetFlying(false);
-            _freeCamController.SetActive(false);
             _speedBoostController.SetEnabled(false);
             _bodyRotationLockController.SetEnabled(false);
             _pluginSettings.Save();

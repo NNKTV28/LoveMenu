@@ -15,23 +15,11 @@ namespace FlyMod.Core
         public string PlayerName { get; private set; } = "—";
         public bool TypingInChat { get; private set; }
 
-        // Set by any controller that deliberately moves the avatar's
-        // position (waypoint/friend teleport, unstick, landing after fly).
-        // KnockbackImmunity reads and clears this each frame so it doesn't
-        // mistake our own teleports for an external knockback to revert.
-        public bool WasTeleportedByUsThisFrame { get; private set; }
-
-        public void MarkIntentionalTeleport() => WasTeleportedByUsThisFrame = true;
-
         public void UpdateForThisFrame()
         {
             ResolveAvatarAndNameIfNeeded();
             TypingInChat = IsChatInputFieldFocused();
         }
-
-        // Called once, after every feature has had a chance to read the
-        // flag for this frame.
-        public void ClearIntentionalTeleportFlag() => WasTeleportedByUsThisFrame = false;
 
         private void ResolveAvatarAndNameIfNeeded()
         {
