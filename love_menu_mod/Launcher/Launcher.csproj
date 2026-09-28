@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>LoveMenuLauncher</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ApplicationIcon>app_icon.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!-- The launcher installs the plugin itself, so the plugin DLL is
+       embedded. Build ../FlyMod.csproj (Release) first. -->
+  <PropertyGroup>
+    <PluginDll>..\bin\Release\FlyMod.dll</PluginDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(PluginDll)" LogicalName="FlyMod.dll" />
+  </ItemGroup>
+
+  <Target Name="RequirePluginDll" BeforeTargets="BeforeBuild" Condition="!Exists('$(PluginDll)')">
+    <Error Text="$(PluginDll) not found. Build ../FlyMod.csproj -c Release first." />
+  </Target>
+
+</Project>

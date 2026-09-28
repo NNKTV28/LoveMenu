@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "Patch definitions for the Lovecraft (Curio) client.",
+    "",
+    "These are TEMPLATES showing each locator kind, and they ship disabled.",
+    "Verify a target before enabling it: use 'lcmem type <Class>' to see the",
+    "predicted field offset, then 'lcmem instances <Class>' and",
+    "'lcmem object <addr>' to confirm the live values look right.",
+    "",
+    "Keep to client-side settings. Anything the server owns - currency,",
+    "entitlements, inventory, other players - is validated server-side, so",
+    "editing it locally changes nothing except your risk of a ban.",
+    "",
+    "Fields:",
+    "  kind    module | aob | mono",
+    "  type    i8 u8 i16 u16 i32 u32 i64 u64 f32 f64 | bytes (hex string)",
+    "  enabled patches with false are skipped by 'patch apply'",
+    "",
+    "  kind=mono   class, field, instance (index), optional namespace",
+    "  kind=module module, offset",
+    "  kind=aob    pattern (?? = wildcard), pattern_offset, executable_only"
+  ],
+
+  "patches": [
+    {
+      "name": "fov",
+      "description": "Override the camera field of view (CameraFXManager.CameraFOV)",
+      "kind": "mono",
+      "class": "CameraFXManager",
+      "namespace": "CameraFX",
+      "field": "CameraFOV",
+      "instance": 0,
+      "type": "f32",
+      "value": 75.0,
+      "enabled": false
+    },
+    {
+      "name": "fov-control",
+      "description": "Enable the FOV override flag so CameraFOV is actually used",
+      "kind": "mono",
+      "class": "CameraFXManager",
+      "namespace": "CameraFX",
+      "field": "CameraFOVControl",
+      "instance": 0,
+      "type": "u8",
+      "value": 1,
+      "enabled": false
+    },
+    {
+      "name": "mouse-sensitivity-x",
+      "description": "First-person horizontal look sensitivity",
+      "kind": "mono",
+      "class": "CameraFirstPerson",
+      "field": "sensitivityX",
+      "instance": 0,
+      "type": "f32",
+      "value": 2.0,
+      "enabled": false
+    },
+    {
+      "name": "example-module-patch",
+      "description": "TEMPLATE: write a value at a fixed module offset",
+      "kind": "module",
+      "module": "Curio.exe",
+      "offset": "0x1000",
+      "type": "i32",
+      "value": 0,
+      "enabled": false
+    },
+    {
+      "name": "example-code-patch",
+      "description": "TEMPLATE: NOP out an instruction found by signature",
+      "kind": "aob",
+      "pattern": "48 8B ?? ?? 89 ?? ?? ?? 00 00",
+      "pattern_offset": 0,
+      "executable_only": true,
+      "type": "bytes",
+      "value": "90 90 90 90 90",
+      "enabled": false
+    }
+  ]
+}

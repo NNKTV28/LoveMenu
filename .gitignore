@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# lcmem session state (scan results, patch backups)
+.lcmem/
+
+# Per-process caches written by the lc_patches tools
+.mono_cache.json
+.chat_state.json
+
+# Chat logs captured by chat_integration (other players' messages - never commit)
+lc_patches/chat_integration/local/
+lc_patches/chat_integration/private/
+lc_patches/chat_integration/channel/
+lc_patches/chat_integration/system/
+
+# .NET build output
+bin/
+obj/
+*.user
+.vs/
+
+# Launcher log archive
+Logs/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
