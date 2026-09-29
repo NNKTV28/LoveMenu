@@ -20,6 +20,71 @@ namespace FlyMod.UI
         public static Texture2D Settings => GetOrBuild("settings", BuildSettings);
         public static Texture2D Warning => GetOrBuild("warning", BuildWarning);
         public static Texture2D Info => GetOrBuild("info", BuildInfo);
+        public static Texture2D Camera => GetOrBuild("camera", BuildCamera);
+        public static Texture2D Gauge => GetOrBuild("gauge", BuildGauge);
+        public static Texture2D Search => GetOrBuild("search", BuildSearch);
+        public static Texture2D Close => GetOrBuild("close", BuildClose);
+        public static Texture2D Heart => GetOrBuild("heart", BuildHeart);
+        public static Texture2D Download => GetOrBuild("download", BuildDownload);
+
+        private static void BuildCamera(IconCanvas c)
+        {
+            c.Line(5, 11, 11, 11);
+            c.Line(11, 11, 13, 7);
+            c.Line(13, 7, 19, 7);
+            c.Line(19, 7, 21, 11);
+            c.Line(21, 11, 27, 11);
+            c.Line(27, 11, 27, 25);
+            c.Line(27, 25, 5, 25);
+            c.Line(5, 25, 5, 11);
+            c.Circle(16, 17.5f, 4.5f);
+        }
+
+        private static void BuildGauge(IconCanvas c)
+        {
+            for (int segment = 0; segment < 12; segment++)
+            {
+                float a1 = Mathf.PI + segment * Mathf.PI / 12f;
+                float a2 = Mathf.PI + (segment + 1) * Mathf.PI / 12f;
+                c.Line(16 + Mathf.Cos(a1) * 11f, 22 + Mathf.Sin(a1) * 11f, 16 + Mathf.Cos(a2) * 11f, 22 + Mathf.Sin(a2) * 11f);
+            }
+            c.Line(16, 22, 22, 14);
+            c.Line(4, 22, 7, 22);
+            c.Line(25, 22, 28, 22);
+        }
+
+        private static void BuildSearch(IconCanvas c)
+        {
+            c.Circle(14, 14, 8);
+            c.Line(20, 20, 27, 27);
+        }
+
+        private static void BuildClose(IconCanvas c)
+        {
+            c.Line(8, 8, 24, 24);
+            c.Line(24, 8, 8, 24);
+        }
+
+        private static void BuildHeart(IconCanvas c)
+        {
+            for (int step = 0; step <= 24; step++)
+            {
+                float t1 = step / 24f * Mathf.PI * 2f;
+                float t2 = (step + 1) / 24f * Mathf.PI * 2f;
+                c.Line(HeartX(t1), HeartY(t1), HeartX(t2), HeartY(t2));
+            }
+        }
+
+        private static float HeartX(float t) => 16f + 0.72f * 16f * Mathf.Pow(Mathf.Sin(t), 3f);
+        private static float HeartY(float t) => 16f - 0.72f * (13f * Mathf.Cos(t) - 5f * Mathf.Cos(2f * t) - 2f * Mathf.Cos(3f * t) - Mathf.Cos(4f * t)) + 1f;
+
+        private static void BuildDownload(IconCanvas c)
+        {
+            c.Line(16, 5, 16, 20);
+            c.Line(10, 14, 16, 20);
+            c.Line(22, 14, 16, 20);
+            c.Line(7, 27, 25, 27);
+        }
 
         private static Texture2D GetOrBuild(string key, System.Action<IconCanvas> paint)
         {

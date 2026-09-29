@@ -7,140 +7,147 @@ using FlyMod.Inputs;
 
 namespace FlyMod.UI
 {
-    // Owns the IMGUI window and every Draw* method; reads/writes state on
-    // the controllers it's given rather than holding feature state itself.
-    // Dashboard layout (like a web admin panel): a fixed-width left sidebar
-    // for navigation, a top bar with the current page title, and a
-    // card-based scrollable content area filling the rest.
+    // The Love Menu window (approved 1.3 design): a sidebar for navigation,
+    // a header with the page title, search and close, and a scrolling page
+    // of cards laid out in columns. It reads and writes state on the
+    // controllers it's given and holds no feature state of its own.
+    //
+    // Clicks that change what's drawn (switching pages, toggles that show or
+    // hide rows) are queued with Later() and applied after the window has
+    // finished drawing, so IMGUI's layout and repaint passes always see the
+    // same controls.
     internal class MenuUI
     {
-        private enum Section { Home, Movement, Teleports, Performance, Crashes, Credits, Settings }
-        private Section _activeSection = Section.Home;
+        public const string Version = "1.3.0";
+
+        private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits }
+
+        private static readonly (Section Section, string Title, string Subtitle)[] Pages =
+        {
+            (Section.Home, "Home", "What is on right now, and how the game is running."),
+            (Section.Movement, "Movement", "Fly, speed and staying on your feet."),
+            (Section.Camera, "Camera", "Field of view, zoom and clean screenshots."),
+            (Section.Teleports, "Teleports", "Find things in the room, save spots, reach friends."),
+            (Section.Performance, "Performance", "Keep busy rooms smooth."),
+            (Section.Crashes, "Crashes", "What the menu does to keep the game running."),
+            (Section.Settings, "Settings", "Keys, look and size of the menu."),
+            (Section.Credits, "Credits", "Who made this and where to get help."),
+        };
+
+        // What the header search can jump to.
+        private static readonly (string Label, Section Section)[] SearchIndex =
+        {
+            ("Fly", Section.Movement), ("Fly speed", Section.Movement), ("Unstick me", Section.Movement),
+            ("Movement speed", Section.Movement), ("Knockback immunity", Section.Movement), ("Lock body rotation", Section.Movement),
+            ("Field of view (FOV)", Section.Camera), ("Zoom-out limit", Section.Camera), ("Screenshot mode", Section.Camera),
+            ("Find objects and keys", Section.Teleports), ("Waypoints", Section.Teleports), ("Teleport to a friend", Section.Teleports),
+            ("Free memory", Section.Performance), ("Auto-free RAM", Section.Performance), ("Hide player wings", Section.Performance),
+            ("Texture resolution", Section.Performance), ("Shadow distance", Section.Performance), ("LOD bias", Section.Performance),
+            ("Crash dumps", Section.Crashes), ("DynamicBones guard", Section.Crashes),
+            ("Keys and hotkeys", Section.Settings), ("Hide promo popups", Section.Settings), ("Accent color", Section.Settings),
+            ("Background opacity", Section.Settings), ("Menu size", Section.Settings), ("Mini overlay", Section.Settings),
+            ("Reset all settings", Section.Settings), ("Check for updates", Section.Home), ("Version", Section.Credits),
+        };
+
+        // Matches the room objects players look for most.
+        private static readonly string[] QuickSearchTerms = { "key", "letter", "potion", "pet" };
 
         public bool Open { get; private set; }
-        private Rect _windowRect = new Rect(40, 40, 860, 460);
-
-        // Read by ScrollWheelBlockPatch so scrolling over an open menu
-        // scrolls menu content instead of zooming the game camera - IMGUI
-        // itself doesn't consume input the rest of the game reads, so the
-        // camera's own Input polling needs to be zeroed directly.
         public static bool IsMouseOverOpenMenu { get; private set; }
+        public Rect WindowRect => _windowRect;
 
         public readonly Theme Theme = new Theme();
-        private readonly MenuStyles _styles = new MenuStyles();
+        public readonly MenuStyles Styles = new MenuStyles();
+        public string DismissedUpdateVersion = "";
 
         private readonly PlayerContext _playerContext;
         private readonly Keybinds _keybinds;
+        private readonly FeatureHotkeys _hotkeys;
         private readonly FlyController _flyController;
         private readonly SpeedBoostController _speedBoostController;
         private readonly TeleportController _teleportController;
         private readonly KnockbackImmunityController _knockbackImmunityController;
         private readonly BodyRotationLockController _bodyRotationLockController;
+        private readonly CameraController _cameraController;
         private readonly CrashWorkaroundController _crashWorkaroundController;
         private readonly SystemStatsController _systemStatsController;
         private readonly PromoPopupController _promoPopupController;
-        private readonly UiDebugController _uiDebugController;
         private readonly PerformanceController _performanceController;
         private readonly WingsHiderController _wingsHiderController;
+        private readonly MiniOverlay _overlay;
+        private readonly UpdateChecker _updateChecker;
         private readonly string _crashDumpFolder;
         private readonly Action _onMenuClosed;
+        private readonly Action _onResetAllSettings;
 
-        private string _newWaypointNameInput = "";
-        private Vector2 _waypointsScrollPosition;
-        private Vector2 _movementScrollPosition;
-        private Vector2 _settingsScrollPosition;
-        private Vector2 _homeScrollPosition;
+        private MenuStyles S => Styles;
+        private Section _section = Section.Home;
+        private Rect _windowRect = new Rect(60, 60, 1040, 660);
+        private bool _windowPlaced;
+        private readonly Dictionary<Section, Vector2> _scroll = new Dictionary<Section, Vector2>();
+        private readonly List<Action> _deferred = new List<Action>();
 
-        private const float SidebarWidth = 210f;
-        private const float TopBarHeight = 52f;
-        private const float ContentPadding = 20f;
-        private const string Version = "v1.2.0";
+        private string _searchQuery = "";
+        private Rect _searchFieldRect;
+        private readonly List<(Rect Rect, Section Section)> _searchResultRects = new List<(Rect, Section)>();
+        private const string SearchControlName = "LoveMenuSearch";
 
-        // Drag-to-resize from the bottom-right corner, like a normal window.
-        private const float MinWindowWidth = 760f;
-        private const float MinWindowHeight = 420f;
-        private const float MaxWindowWidth = 1400f;
-        private const float MaxWindowHeight = 900f;
-        private const float CornerGrabSize = 22f;
-        private const float EdgeGrabThickness = 8f;
-        private Vector2 _resizeStartMouseScreen;
-        private Vector2 _resizeStartWindowSize;
-        private bool _resizingWidth, _resizingHeight;
+        private string _newWaypointName = "";
+        private Vector2 _collectiblesScroll, _waypointsScroll;
+        private float _resetConfirmUntil;
 
-        // Set once per Draw() pass - every section reads these instead of
-        // _windowRect directly, since the sidebar eats into the width and
-        // the top bar into the height actually available for content.
-        private float _contentWidth;
-
-        private const float MinContentHeight = 300f;
-        private const float ListRowHeight = 62f;
-
-        // Lists size themselves to how much they actually contain, capped
-        // so a 40-result search scrolls internally instead of stretching
-        // the window past the screen. Deliberately independent of
-        // _windowRect.height - deriving it from the window is what made the
-        // window grow every frame.
-        private static float ListHeightFor(int itemCount, float maxHeight)
-        {
-            if (itemCount <= 0)
-                return 90f;
-            return Mathf.Clamp(itemCount * ListRowHeight + 8f, 90f, maxHeight);
-        }
-
-        private readonly (Section Section, string Label, Func<Texture2D> Icon)[] _navItems;
-        private readonly float[] _navIconScale;
-
-        // Page-switch fade-in: content alpha ramps 0->1 over a few frames
-        // whenever the active section changes.
-        private const float SectionFadeSeconds = 0.15f;
-        private Section _lastDrawnSection = Section.Home;
-        private float _sectionFadeElapsed = SectionFadeSeconds;
-
-        public MenuUI(PlayerContext playerContext, Keybinds keybinds, FlyController flyController,
+        public MenuUI(PlayerContext playerContext, Keybinds keybinds, FeatureHotkeys hotkeys, FlyController flyController,
             SpeedBoostController speedBoostController, TeleportController teleportController,
             KnockbackImmunityController knockbackImmunityController, BodyRotationLockController bodyRotationLockController,
-            CrashWorkaroundController crashWorkaroundController, SystemStatsController systemStatsController,
-            PromoPopupController promoPopupController, UiDebugController uiDebugController,
+            CameraController cameraController, CrashWorkaroundController crashWorkaroundController,
+            SystemStatsController systemStatsController, PromoPopupController promoPopupController,
             PerformanceController performanceController, WingsHiderController wingsHiderController,
-            string crashDumpFolder, Action onMenuClosed)
+            MiniOverlay overlay, UpdateChecker updateChecker, string crashDumpFolder,
+            Action onMenuClosed, Action onResetAllSettings)
         {
             _playerContext = playerContext;
             _keybinds = keybinds;
+            _hotkeys = hotkeys;
             _flyController = flyController;
             _speedBoostController = speedBoostController;
             _teleportController = teleportController;
             _knockbackImmunityController = knockbackImmunityController;
             _bodyRotationLockController = bodyRotationLockController;
+            _cameraController = cameraController;
             _crashWorkaroundController = crashWorkaroundController;
             _systemStatsController = systemStatsController;
             _promoPopupController = promoPopupController;
-            _uiDebugController = uiDebugController;
             _performanceController = performanceController;
             _wingsHiderController = wingsHiderController;
+            _overlay = overlay;
+            _updateChecker = updateChecker;
             _crashDumpFolder = crashDumpFolder;
             _onMenuClosed = onMenuClosed;
-
-            _navItems = new (Section, string, Func<Texture2D>)[]
-            {
-                (Section.Home, "Home", () => Icons.Home),
-                (Section.Movement, "Movement", () => Icons.Movement),
-                (Section.Teleports, "Teleports", () => Icons.Teleport),
-                (Section.Performance, "Performance", () => Icons.Movement),
-                (Section.Crashes, "Crashes", () => Icons.Warning),
-                (Section.Credits, "Credits", () => Icons.Info),
-                (Section.Settings, "Settings", () => Icons.Settings),
-            };
-            _navIconScale = new float[_navItems.Length];
-            for (int i = 0; i < _navIconScale.Length; i++)
-                _navIconScale[i] = 1f;
+            _onResetAllSettings = onResetAllSettings;
         }
 
-        public void ToggleOpen()
+        public void SetOpen(bool open)
         {
-            Open = !Open;
-            if (!Open)
+            if (open == Open)
+                return;
+            Open = open;
+            if (!open)
+            {
+                _searchQuery = "";
                 _onMenuClosed?.Invoke();
+            }
         }
+
+        public void ToggleOpen() => SetOpen(!Open);
+
+        // True while one of the menu's own text boxes has keyboard focus, so
+        // feature hotkeys don't fire while the player types a search or a
+        // waypoint name.
+        public bool IsTyping => Open && GUIUtility.keyboardControl != 0;
+
+        private void Later(Action action) => _deferred.Add(action);
+
+        // --- window ----------------------------------------------------------
 
         public void Draw()
         {
@@ -149,841 +156,1073 @@ namespace FlyMod.UI
                 IsMouseOverOpenMenu = false;
                 return;
             }
-            _styles.Rebuild(Theme);
+            Styles.Rebuild(Theme);
 
-            // Width is user-controlled (resize handles), so it's pinned.
-            // Height is left free so the window grows to fit its content -
-            // but the result is clamped before being stored, which is what
-            // stops the runaway growth this had before: content sized off
-            // the window height made the window taller, which made the
-            // content taller again. Sections now size themselves off their
-            // own content, never off _windowRect.height.
-            _styles.Window.fixedWidth = _windowRect.width;
-            _styles.Window.fixedHeight = 0f;
+            float width = Mathf.Min(S.S(1040), Screen.width - 20f);
+            float height = Mathf.Min(S.S(660), Screen.height - 20f);
+            if (!_windowPlaced)
+            {
+                _windowRect.x = S.S(40);
+                _windowRect.y = S.S(40);
+                _windowPlaced = true;
+            }
+            _windowRect.width = width;
+            _windowRect.height = height;
 
-            Rect resultRect = GUILayout.Window(831201, _windowRect, DrawWindow, "", _styles.Window);
-            _windowRect.x = resultRect.x;
-            _windowRect.y = resultRect.y;
-            _windowRect.height = Mathf.Clamp(resultRect.height, MinWindowHeight, MaxAutoWindowHeight);
-            ClampWindowToScreen();
+            GUISkin skin = GUI.skin;
+            GUIStyle previousBar = skin.verticalScrollbar, previousThumb = skin.verticalScrollbarThumb;
+            skin.verticalScrollbar = S.VerticalScrollbar;
+            skin.verticalScrollbarThumb = S.VerticalThumb;
+            try
+            {
+                _windowRect = GUI.Window(831201, _windowRect, DrawWindow, GUIContent.none, S.Window);
+            }
+            finally
+            {
+                skin.verticalScrollbar = previousBar;
+                skin.verticalScrollbarThumb = previousThumb;
+            }
+
+            _windowRect.x = Mathf.Clamp(_windowRect.x, S.S(200) - _windowRect.width, Screen.width - S.S(200));
+            _windowRect.y = Mathf.Clamp(_windowRect.y, 0f, Screen.height - S.S(74));
             IsMouseOverOpenMenu = _windowRect.Contains(Event.current.mousePosition);
-        }
 
-        // Never let the window be dragged fully out of reach, while still
-        // allowing it to hang off an edge. Clamping x/y to [0, screen -
-        // size] used to snap it hard to the top-left whenever the window
-        // was wider than the game window, which made it look like every
-        // drag was being undone. Keeping a strip of it on screen is enough.
-        private const float MinVisibleEdge = 220f;
-
-        private static float MaxAutoWindowHeight => Mathf.Min(MaxWindowHeight, Screen.height - 60f);
-
-        private void ClampWindowToScreen()
-        {
-            _windowRect.x = Mathf.Clamp(_windowRect.x, MinVisibleEdge - _windowRect.width, Screen.width - MinVisibleEdge);
-            _windowRect.y = Mathf.Clamp(_windowRect.y, 0f, Mathf.Max(0f, Screen.height - TopBarHeight));
-        }
-
-        // Grabbable resize zones along the whole right edge, whole bottom
-        // edge, and a bigger bottom-right corner (which resizes both axes
-        // at once) - like a native OS window border, not just one tiny
-        // pixel-perfect corner. Standard IMGUI hot-control pattern so the
-        // drag keeps tracking even if the mouse outruns the strip mid-drag.
-        // _windowRect is mutated here for next frame; GUILayout.Window
-        // re-lays-out content against whatever width/height we set since
-        // every section sizes itself off _contentWidth rather than letting
-        // content auto-size the window.
-        private void DrawResizeHandles()
-        {
-            var cornerRect = new Rect(_windowRect.width - CornerGrabSize, _windowRect.height - CornerGrabSize, CornerGrabSize, CornerGrabSize);
-            var rightEdgeRect = new Rect(_windowRect.width - EdgeGrabThickness, 0, EdgeGrabThickness, _windowRect.height - CornerGrabSize);
-            var bottomEdgeRect = new Rect(0, _windowRect.height - EdgeGrabThickness, _windowRect.width - CornerGrabSize, EdgeGrabThickness);
-
-            int controlId = GUIUtility.GetControlID(FocusType.Passive);
-            Event e = Event.current;
-
-            switch (e.GetTypeForControl(controlId))
+            if (_deferred.Count > 0)
             {
-                case EventType.MouseDown:
-                    if (e.button != 0)
-                        break;
-                    bool inCorner = cornerRect.Contains(e.mousePosition);
-                    bool inRightEdge = rightEdgeRect.Contains(e.mousePosition);
-                    bool inBottomEdge = bottomEdgeRect.Contains(e.mousePosition);
-                    if (inCorner || inRightEdge || inBottomEdge)
-                    {
-                        GUIUtility.hotControl = controlId;
-                        _resizingWidth = inCorner || inRightEdge;
-                        _resizingHeight = inCorner || inBottomEdge;
-                        _resizeStartMouseScreen = GUIUtility.GUIToScreenPoint(e.mousePosition);
-                        _resizeStartWindowSize = new Vector2(_windowRect.width, _windowRect.height);
-                        e.Use();
-                    }
-                    break;
-                case EventType.MouseDrag:
-                    if (GUIUtility.hotControl == controlId)
-                    {
-                        Vector2 delta = GUIUtility.GUIToScreenPoint(e.mousePosition) - _resizeStartMouseScreen;
-                        if (_resizingWidth)
-                            _windowRect.width = Mathf.Clamp(_resizeStartWindowSize.x + delta.x, MinWindowWidth, MaxWindowWidth);
-                        if (_resizingHeight)
-                            _windowRect.height = Mathf.Clamp(_resizeStartWindowSize.y + delta.y, MinWindowHeight, MaxWindowHeight);
-                        e.Use();
-                    }
-                    break;
-                case EventType.MouseUp:
-                    if (GUIUtility.hotControl == controlId)
-                    {
-                        GUIUtility.hotControl = 0;
-                        e.Use();
-                    }
-                    break;
+                var actions = _deferred.ToArray();
+                _deferred.Clear();
+                foreach (Action action in actions)
+                    action();
             }
-
-            bool isActive = GUIUtility.hotControl == controlId;
-            bool isHoveringEdge = rightEdgeRect.Contains(e.mousePosition) || bottomEdgeRect.Contains(e.mousePosition);
-            bool isHoveringCorner = cornerRect.Contains(e.mousePosition);
-
-            Color previousColor = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, isActive || isHoveringEdge ? 0.3f : 0.1f);
-            GUI.DrawTexture(rightEdgeRect, Texture2D.whiteTexture);
-            GUI.DrawTexture(bottomEdgeRect, Texture2D.whiteTexture);
-
-            GUI.color = new Color(1f, 1f, 1f, isActive || isHoveringCorner ? 0.6f : 0.3f);
-            for (int i = 0; i < 3; i++)
-            {
-                float offset = i * 6f;
-                GUI.DrawTexture(new Rect(cornerRect.xMax - 3f - offset, cornerRect.yMax - 3f, 3f, 3f + offset), Texture2D.whiteTexture);
-            }
-            GUI.color = previousColor;
         }
+
+        private float SidebarWidth => S.S(220);
+        private float HeaderHeight => S.S(74);
 
         private void DrawWindow(int windowId)
         {
-            _contentWidth = _windowRect.width - SidebarWidth - ContentPadding * 2f;
+            HandleSearchResultClicks();
 
-            GUILayout.BeginHorizontal();
+            float width = _windowRect.width;
+            float height = _windowRect.height;
+            float mainX = SidebarWidth;
+            float mainWidth = width - SidebarWidth;
 
+            GUILayout.BeginArea(new Rect(0, 0, SidebarWidth, height), S.Sidebar);
             DrawSidebar();
+            GUILayout.EndArea();
 
-            GUILayout.BeginVertical();
-            DrawTopBar();
-            DrawContentArea();
-            GUILayout.EndVertical();
+            GUILayout.BeginArea(new Rect(mainX + S.S(24), S.S(20), mainWidth - S.S(48), HeaderHeight - S.S(20)));
+            DrawHeader(mainX + S.S(24), S.S(20));
+            GUILayout.EndArea();
+            FillRect(new Rect(mainX, HeaderHeight, mainWidth, 1), Theme.Divider);
 
-            GUILayout.EndHorizontal();
+            float contentX = mainX + S.S(24);
+            float contentWidth = mainWidth - S.S(48) - S.S(12); // room for the scrollbar
+            GUILayout.BeginArea(new Rect(contentX, HeaderHeight + 1, mainWidth - S.S(30), height - HeaderHeight - 2));
+            _scroll.TryGetValue(_section, out Vector2 scroll);
+            scroll = GUILayout.BeginScrollView(scroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUIStyle.none);
+            GUILayout.Space(S.S(18));
+            DrawSection(contentWidth);
+            GUILayout.Space(S.S(12));
+            GUILayout.EndScrollView();
+            _scroll[_section] = scroll;
+            GUILayout.EndArea();
 
-            GUI.DragWindow(new Rect(SidebarWidth, 0, _windowRect.width - SidebarWidth, TopBarHeight));
-            DrawWindowBorder();
-            DrawResizeHandles();
+            FillRect(new Rect(SidebarWidth - 1, 0, 1, height), Theme.Divider);
+            DrawSearchResults();
+            Toasts.Draw(S, new Rect(0, 0, width, height));
+
+            // Dragging by the title area of the header; search and close
+            // sit to the right of it and keep their own clicks.
+            GUI.DragWindow(new Rect(mainX, 0, mainWidth - S.S(320), HeaderHeight));
         }
 
-        // A visible outline around the whole window - without it, the
-        // window has no edge distinguishing it from the game world behind
-        // it, and the resize strips (near-invisible until hovered) are the
-        // only other hint of where its boundary actually is.
-        private void DrawWindowBorder()
-        {
-            Color previousColor = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, 0.14f);
-            float w = _windowRect.width;
-            float h = _windowRect.height;
-            GUI.DrawTexture(new Rect(0, 0, w, 1), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(0, h - 1, w, 1), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(0, 0, 1, h), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(w - 1, 0, 1, h), Texture2D.whiteTexture);
-            GUI.color = previousColor;
-        }
-
-        private void DrawContentArea()
-        {
-
-            UpdateSectionFade();
-            Color previousColor = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(_sectionFadeElapsed / SectionFadeSeconds));
-
-            GUILayout.BeginVertical(GUILayout.Width(_contentWidth + ContentPadding * 2f), GUILayout.MinHeight(MinContentHeight));
-            GUILayout.Space(ContentPadding);
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(ContentPadding);
-            GUILayout.BeginVertical(GUILayout.Width(_contentWidth));
-            DrawActiveSection();
-            GUILayout.EndVertical();
-            GUILayout.EndHorizontal();
-            GUILayout.EndVertical();
-
-            GUI.color = previousColor;
-        }
-
-        private void UpdateSectionFade()
-        {
-            if (_activeSection != _lastDrawnSection)
-            {
-                _lastDrawnSection = _activeSection;
-                _sectionFadeElapsed = 0f;
-            }
-            else if (_sectionFadeElapsed < SectionFadeSeconds && Event.current.type == EventType.Repaint)
-            {
-                _sectionFadeElapsed += Time.unscaledDeltaTime;
-            }
-        }
-
-        // --- sidebar --------------------------------------------------------
-
-        private void DrawSidebar()
-        {
-            GUILayout.BeginVertical(_styles.Sidebar, GUILayout.Width(SidebarWidth), GUILayout.ExpandHeight(true));
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(16);
-            Rect dotRect = GUILayoutUtility.GetRect(9, 9, GUILayout.Width(9), GUILayout.Height(9));
-            dotRect.y += 4;
-            Color prev = GUI.color;
-            GUI.color = Theme.Accent;
-            GUI.DrawTexture(dotRect, Texture2D.whiteTexture);
-            GUI.color = prev;
-            GUILayout.Space(8);
-            GUILayout.BeginVertical();
-            GUILayout.Label("LOVE MENU", _styles.Header);
-            GUILayout.Label(Version + "  ·  NNKtv28", _styles.Meta);
-            GUILayout.EndVertical();
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(18);
-
-            for (int i = 0; i < _navItems.Length; i++)
-                DrawSidebarNavItem(i);
-
-            GUILayout.FlexibleSpace();
-
-            Divider();
-            GUILayout.Space(6);
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(16);
-            GUILayout.Label(_playerContext.PlayerName, _styles.Description);
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(16);
-            GUILayout.Label(_keybinds.MenuKey + "  close menu", _styles.Meta);
-            GUILayout.EndHorizontal();
-            GUILayout.Space(10);
-
-            GUILayout.EndVertical();
-        }
-
-        private void DrawSidebarNavItem(int index)
-        {
-            bool isActive = _activeSection == _navItems[index].Section;
-            GUIStyle style = isActive ? _styles.SidebarItemActive : _styles.SidebarItem;
-
-            if (GUILayout.Button(GUIContent.none, style, GUILayout.Height(40), GUILayout.ExpandWidth(true)))
-                _activeSection = _navItems[index].Section;
-
-            Rect rowRect = GUILayoutUtility.GetLastRect();
-            UpdateNavIconScale(index, isActive);
-
-            if (isActive)
-            {
-                Color prev = GUI.color;
-                GUI.color = Theme.Accent;
-                GUI.DrawTexture(new Rect(rowRect.x, rowRect.y, 3, rowRect.height), Texture2D.whiteTexture);
-                GUI.color = prev;
-            }
-
-            float iconSize = 18f * _navIconScale[index];
-            Rect iconRect = new Rect(rowRect.x + 16f, rowRect.y + (rowRect.height - iconSize) / 2f, iconSize, iconSize);
-            Color iconColor = isActive ? Color.white : style.normal.textColor;
-            Color previousColor = GUI.color;
-            GUI.color = iconColor;
-            GUI.DrawTexture(iconRect, _navItems[index].Icon());
-            GUI.color = previousColor;
-
-            var labelRect = new Rect(rowRect.x + 44f, rowRect.y, rowRect.width - 50f, rowRect.height);
-            GUIStyle labelStyle = new GUIStyle(style) { normal = { background = null, textColor = iconColor } };
-            GUI.Label(labelRect, _navItems[index].Label, labelStyle);
-        }
-
-        private void UpdateNavIconScale(int index, bool isActive)
+        private void FillRect(Rect rect, Color color)
         {
             if (Event.current.type != EventType.Repaint)
                 return;
-            float target = isActive ? 1.1f : 1f;
-            _navIconScale[index] = Mathf.MoveTowards(_navIconScale[index], target, Time.unscaledDeltaTime * 4f);
+            Color previous = GUI.color;
+            GUI.color = color * previous;
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = previous;
         }
 
-        // --- top bar ----------------------------------------------------
+        // --- sidebar ---------------------------------------------------------
 
-        private void DrawTopBar()
+        private void DrawSidebar()
         {
-            GUILayout.BeginHorizontal(_styles.TopBar, GUILayout.Height(TopBarHeight), GUILayout.Width(_windowRect.width - SidebarWidth));
-            GUILayout.Label(CurrentSectionLabel().ToUpperInvariant(), _styles.Header);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(S.S(8));
+            Rect logo = GUILayoutUtility.GetRect(S.S(34), S.S(34), GUILayout.Width(S.S(34)), GUILayout.Height(S.S(34)));
+            if (Event.current.type == EventType.Repaint)
+            {
+                Color previous = GUI.color;
+                GUI.color = Theme.Accent * previous;
+                S.FillShape.Draw(logo, false, false, false, false);
+                GUI.color = previous;
+                Widgets.DrawIcon(new Rect(logo.x + S.S(8), logo.y + S.S(8), S.S(18), S.S(18)), Icons.Heart, Color.white);
+            }
+            GUILayout.Space(S.S(10));
+            GUILayout.BeginVertical();
+            GUILayout.Space(S.S(1));
+            GUILayout.Label("LOVE MENU", S.Brand);
+            GUILayout.Label("v" + Version + " · by NNKtv28", S.BrandMeta);
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(18));
+
+            NavItem(Section.Home, Icons.Home);
+            NavItem(Section.Movement, Icons.Movement);
+            NavItem(Section.Camera, Icons.Camera);
+            NavItem(Section.Teleports, Icons.Teleport);
+            NavItem(Section.Performance, Icons.Gauge);
+            NavItem(Section.Crashes, Icons.Warning);
+            NavItem(Section.Settings, Icons.Settings);
+            NavItem(Section.Credits, Icons.Info);
+
             GUILayout.FlexibleSpace();
+            Widgets.Divider(S);
+            GUILayout.Space(S.S(12));
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(S.S(8));
+            string name = _playerContext.PlayerName.Length > 0 ? _playerContext.PlayerName : "Loading...";
+            DrawInitialBadge(name, S.S(30), S.BodyStrong);
+            GUILayout.Space(S.S(10));
+            GUILayout.BeginVertical();
+            GUILayout.Label(name, S.BodyStrong);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(FeatureHotkeys.KeyName(_keybinds.MenuKey), MiniKeycap());
+            GUILayout.Space(S.S(5));
+            GUILayout.Label("to close", S.Small);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
 
-        private string CurrentSectionLabel()
+        private GUIStyle _miniKeycap;
+        private float _miniKeycapScale;
+
+        private GUIStyle MiniKeycap()
         {
-            foreach (var navItem in _navItems)
-                if (navItem.Section == _activeSection)
-                    return navItem.Label;
+            if (_miniKeycap == null || !Mathf.Approximately(_miniKeycapScale, S.Scale))
+            {
+                _miniKeycap = new GUIStyle(S.KeycapEmpty) { fixedHeight = S.S(18), fontSize = Mathf.RoundToInt(S.S(11)), fontStyle = FontStyle.Bold };
+                _miniKeycap.normal.textColor = Theme.Text;
+                _miniKeycap.padding = new RectOffset(Mathf.RoundToInt(S.S(6)), Mathf.RoundToInt(S.S(6)), 0, 0);
+                _miniKeycapScale = S.Scale;
+            }
+            return _miniKeycap;
+        }
+
+        private void DrawInitialBadge(string name, float size, GUIStyle textStyle)
+        {
+            Rect rect = GUILayoutUtility.GetRect(size, size, GUILayout.Width(size), GUILayout.Height(size));
+            if (Event.current.type != EventType.Repaint)
+                return;
+            Color previous = GUI.color;
+            GUI.color = Theme.Selected * previous;
+            GUI.DrawTexture(rect, S.Circle);
+            GUI.color = previous;
+            var centered = new GUIStyle(textStyle) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Theme.AccentTextSoft } };
+            GUI.Label(rect, name.Length > 0 ? name.Substring(0, 1).ToUpperInvariant() : "?", centered);
+        }
+
+        private void NavItem(Section section, Texture2D icon)
+        {
+            bool active = _section == section;
+            if (GUILayout.Button(TitleOf(section), active ? S.NavItemActive : S.NavItem, GUILayout.ExpandWidth(true)))
+                Later(() => { _section = section; _searchQuery = ""; });
+            Rect row = GUILayoutUtility.GetLastRect();
+            float iconSize = S.S(18);
+            Widgets.DrawIcon(new Rect(row.x + S.S(14), row.center.y - iconSize / 2f, iconSize, iconSize), icon,
+                active ? Theme.TextStrong : Theme.TextSecondary);
+            GUILayout.Space(S.S(2));
+        }
+
+        private static string TitleOf(Section section)
+        {
+            foreach (var page in Pages)
+                if (page.Section == section)
+                    return page.Title;
             return "";
         }
 
-        private void DrawActiveSection()
+        private static string SubtitleOf(Section section)
         {
-            switch (_activeSection)
-            {
-                case Section.Home: DrawHomeSection(); break;
-                case Section.Movement: DrawMovementSection(); break;
-                case Section.Teleports: DrawTeleportsSection(); break;
-                case Section.Performance: DrawPerformanceSection(); break;
-                case Section.Crashes: DrawCrashesSection(); break;
-                case Section.Credits: DrawCreditsSection(); break;
-                case Section.Settings: DrawSettingsSection(); break;
-            }
+            foreach (var page in Pages)
+                if (page.Section == section)
+                    return page.Subtitle;
+            return "";
         }
 
-        // Small helpers used by every page for the shared card/row look.
+        // --- header and search -----------------------------------------------
 
-        private void BeginCard() => GUILayout.BeginVertical(_styles.Card);
-        private void EndCard() => GUILayout.EndVertical();
-
-        private void CardHeaderRow(string title, string description, bool on, Action onToggle)
+        private void DrawHeader(float areaX, float areaY)
         {
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical();
-            GUILayout.Label(title, _styles.Label);
-            if (!string.IsNullOrEmpty(description))
-                GUILayout.Label(description, _styles.Description);
+            GUILayout.Label(TitleOf(_section), S.Title);
+            GUILayout.Space(S.S(4));
+            GUILayout.Label(SubtitleOf(_section), S.Subtitle);
             GUILayout.EndVertical();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(on ? "ON" : "OFF", on ? _styles.ToggleOn : _styles.ToggleOff, GUILayout.Width(60)))
-                onToggle();
+
+            GUILayout.BeginVertical();
+            GUILayout.Space(S.S(1));
+            GUI.SetNextControlName(SearchControlName);
+            string query = GUILayout.TextField(_searchQuery, S.SearchField, GUILayout.Width(S.S(240)));
+            Rect field = GUILayoutUtility.GetLastRect();
+            if (Event.current.type == EventType.Repaint)
+                _searchFieldRect = new Rect(field.x + areaX, field.y + areaY, field.width, field.height);
+            if (query.Length == 0 && GUI.GetNameOfFocusedControl() != SearchControlName && Event.current.type == EventType.Repaint)
+            {
+                var hint = new GUIStyle(S.SearchField) { normal = { background = null, textColor = Hex(0x8f89a1) } };
+                GUI.Label(field, "Search settings", hint);
+            }
+            Widgets.DrawIcon(new Rect(field.x + S.S(11), field.center.y - S.S(7.5f), S.S(15), S.S(15)), Icons.Search, Hex(0x8f89a1));
+            _searchQuery = query;
+            GUILayout.EndVertical();
+
+            GUILayout.Space(S.S(12));
+            GUILayout.BeginVertical();
+            GUILayout.Space(S.S(2));
+            if (GUILayout.Button(GUIContent.none, S.IconButton))
+                Later(() => SetOpen(false));
+            Rect close = GUILayoutUtility.GetLastRect();
+            Widgets.DrawIcon(new Rect(close.center.x - S.S(8), close.center.y - S.S(8), S.S(16), S.S(16)), Icons.Close, Theme.TextSoft);
+            GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
 
-        private void Divider() => GUILayout.Box("", _styles.Divider, GUILayout.ExpandWidth(true));
-
-        private void DrawEmptyState(string message)
+        private List<(string Label, Section Section)> SearchResults()
         {
-            GUILayout.FlexibleSpace();
-            GUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(message, _styles.Description);
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            GUILayout.FlexibleSpace();
+            var results = new List<(string, Section)>();
+            string query = _searchQuery.Trim();
+            if (query.Length == 0)
+                return results;
+            foreach (var entry in SearchIndex)
+            {
+                if (entry.Label.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    results.Add(entry);
+                if (results.Count == 6)
+                    break;
+            }
+            return results;
         }
 
-        // --- Home: status dashboard -----------------------------------------
-
-        private void DrawHomeSection()
+        // IMGUI hands a click to whichever control was drawn first, and the
+        // result list is drawn last so it sits on top. So clicks on it are
+        // taken here, before anything else in the window sees them.
+        private void HandleSearchResultClicks()
         {
-            _homeScrollPosition = GUILayout.BeginScrollView(_homeScrollPosition, GUILayout.ExpandHeight(true));
+            Event e = Event.current;
+            if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape && _searchQuery.Length > 0)
+            {
+                _searchQuery = "";
+                GUIUtility.keyboardControl = 0;
+                e.Use();
+                return;
+            }
+            if (e.type != EventType.MouseDown || _searchQuery.Trim().Length == 0)
+                return;
 
-            GUILayout.BeginHorizontal();
-            DrawStatusCard("Fly", _flyController.Flying ? "Enabled" : "Disabled", _flyController.Flying);
-            DrawStatusCard("Movement Speed", _speedBoostController.Enabled ? _speedBoostController.Multiplier.ToString("0.0") + "x" : "Disabled", _speedBoostController.Enabled);
-            DrawStatusCard("Knockback Immunity", _knockbackImmunityController.Enabled ? "Enabled" : "Disabled", _knockbackImmunityController.Enabled);
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(14);
-            GUILayout.Label("SYSTEM", _styles.CardTitle);
-            GUILayout.Space(6);
-
-            float graphCardWidth = (_contentWidth - 8f) / 2f;
-            GUILayout.BeginHorizontal();
-            DrawGraphCard("Frames Per Second", _systemStatsController.FramesPerSecond.ToString("0"),
-                _systemStatsController.FpsHistory, Theme.Accent, graphCardWidth);
-            DrawGraphCard("RAM (MB)", SystemStatsController.BytesToMB(_systemStatsController.WorkingSetBytes()).ToString("0"),
-                _systemStatsController.RamHistoryMB, Theme.Accent, graphCardWidth);
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(4);
-            GUILayout.BeginHorizontal();
-            DrawStatusCard("Frame Time", _systemStatsController.FrameTimeMs.ToString("0.0") + " ms", false);
-            long vramBytes = _systemStatsController.GraphicsMemoryBytes();
-            DrawStatusCard("VRAM", _systemStatsController.HasVramReading ? SystemStatsController.BytesToMB(vramBytes).ToString("0") + " MB" : "n/a", false);
-            DrawStatusCard("Managed Heap", SystemStatsController.BytesToMB(_systemStatsController.ManagedMemoryBytes()).ToString("0") + " MB", false);
-            DrawStatusCard("Game Uptime", _systemStatsController.GameUptime(), false);
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            DrawStatusCard("Position", PositionText(), false);
-            DrawStatusCard("Scene", UnityEngine.SceneManagement.SceneManager.GetActiveScene().name, false);
-            DrawStatusCard("Camera Mode", _uiDebugController.CameraType, false);
-            DrawStatusCard("Movement Blocked",
-                _uiDebugController.MovementDisabled ? "YES (camera)" : _uiDebugController.InputDisabled ? "YES (input)" : "No",
-                _uiDebugController.MovementDisabled || _uiDebugController.InputDisabled);
-            GUILayout.EndHorizontal();
-
-            GUILayout.EndScrollView();
+            foreach (var result in _searchResultRects)
+            {
+                if (!result.Rect.Contains(e.mousePosition))
+                    continue;
+                Section target = result.Section;
+                Later(() => { _section = target; _searchQuery = ""; GUIUtility.keyboardControl = 0; });
+                e.Use();
+                return;
+            }
+            if (!_searchFieldRect.Contains(e.mousePosition))
+                Later(() => { _searchQuery = ""; GUIUtility.keyboardControl = 0; });
         }
 
-        // Pads above and below the actual sample range so the line sits in
-        // the middle of the graph. Anchoring the range at zero pinned a
-        // steady 160 FPS or 3.6 GB RAM line flat against the top edge with
-        // dead space underneath, and hid all the small variation that's
-        // the entire point of plotting it.
+        private void DrawSearchResults()
+        {
+            if (Event.current.type == EventType.Layout)
+                return;
+            _searchResultRects.Clear();
+            if (_searchQuery.Trim().Length == 0)
+                return;
+
+            List<(string Label, Section Section)> results = SearchResults();
+            float rowHeight = S.S(34);
+            float padding = S.S(4);
+            float height = results.Count == 0 ? S.S(40) : results.Count * rowHeight + padding * 2f;
+            var box = new Rect(_searchFieldRect.x, _searchFieldRect.yMax + S.S(6), _searchFieldRect.width, height);
+            GUI.Box(box, GUIContent.none, S.Dropdown);
+
+            if (results.Count == 0)
+            {
+                GUI.Label(new Rect(box.x + S.S(12), box.y, box.width - S.S(24), box.height), "No setting matches", new GUIStyle(S.Description) { alignment = TextAnchor.MiddleLeft, wordWrap = false });
+                return;
+            }
+
+            var whereStyle = new GUIStyle(S.Small) { alignment = TextAnchor.MiddleRight };
+            for (int i = 0; i < results.Count; i++)
+            {
+                var row = new Rect(box.x + padding, box.y + padding + i * rowHeight, box.width - padding * 2f, rowHeight);
+                bool hover = row.Contains(Event.current.mousePosition);
+                if (Event.current.type == EventType.Repaint)
+                    S.DropdownRow.Draw(row, new GUIContent(results[i].Label), hover, false, false, false);
+                GUI.Label(new Rect(row.x, row.y, row.width - S.S(10), row.height), TitleOf(results[i].Section), whereStyle);
+                _searchResultRects.Add((row, results[i].Section));
+            }
+        }
+
+        // --- layout helpers --------------------------------------------------
+
+        private float Gap => S.S(12);
+
+        private void Columns(float width, Action<float> left, Action<float> right)
+        {
+            float column = (width - Gap) / 2f;
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical(GUILayout.Width(column));
+            left(column);
+            GUILayout.EndVertical();
+            GUILayout.Space(Gap);
+            GUILayout.BeginVertical(GUILayout.Width(column));
+            right(column);
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
+        }
+
+        private void Card(float width, Action<float> body, GUIStyle style = null)
+        {
+            GUIStyle cardStyle = style ?? S.Card;
+            GUILayout.BeginVertical(cardStyle, GUILayout.Width(width));
+            body(width - cardStyle.padding.horizontal);
+            GUILayout.EndVertical();
+            GUILayout.Space(Gap);
+        }
+
+        private void SectionLabel(string text)
+        {
+            GUILayout.Label(text.ToUpperInvariant(), S.SectionLabel);
+            GUILayout.Space(S.S(10));
+        }
+
+        private static Color Hex(int rgb) => Theme.Hex(rgb);
+
+        // Vertically centres something itemHeight tall next to a block
+        // blockHeight tall. GUILayout.FlexibleSpace can't do this: inside a
+        // vertical group it grows to fill all available height, which
+        // stretched every card to the height of the page.
+        private void BeginCentered(float blockHeight, float itemHeight)
+        {
+            GUILayout.BeginVertical();
+            GUILayout.Space(Mathf.Max(0f, (blockHeight - itemHeight) / 2f));
+        }
+
+        private static void EndCentered() => GUILayout.EndVertical();
+
+        private static float LineHeight(GUIStyle style) => style.CalcHeight(new GUIContent("Ag"), 1000f);
+
+        private static float TextHeight(GUIStyle style, string text, float width) => style.CalcHeight(new GUIContent(text), width);
+
+        private void CenteredLabel(string text, GUIStyle style, float rowHeight, params GUILayoutOption[] options)
+        {
+            BeginCentered(rowHeight, LineHeight(style));
+            GUILayout.Label(text, style, options);
+            EndCentered();
+        }
+
+        // A card row: title (and optional badge) over a wrapped description,
+        // an optional hotkey button, and the switch on the right.
+        private void ToggleRow(float inner, string id, string title, string description, bool on, Action toggle,
+            string hotkeyId = null, GUIStyle badge = null, string badgeText = null, GUIStyle titleStyle = null)
+        {
+            float switchWidth = S.S(44);
+            float hotkeyWidth = hotkeyId != null ? HotkeyButtonWidth(hotkeyId) + S.S(10) : 0f;
+            float textWidth = Mathf.Max(S.S(80), inner - switchWidth - S.S(12) - hotkeyWidth);
+
+            GUIStyle heading = titleStyle ?? S.CardTitle;
+            float blockHeight = LineHeight(heading);
+            if (badge != null)
+                blockHeight = Mathf.Max(blockHeight, LineHeight(badge));
+            if (!string.IsNullOrEmpty(description))
+                blockHeight += S.S(3) + TextHeight(S.Description, description, textWidth);
+            float switchHeight = S.S(24);
+            float rowHeight = Mathf.Max(blockHeight, switchHeight);
+
+            GUILayout.BeginHorizontal();
+            BeginCentered(rowHeight, blockHeight);
+            GUILayout.BeginVertical(GUILayout.Width(textWidth));
+            if (badge != null)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(title, heading);
+                GUILayout.Space(S.S(8));
+                GUILayout.Label(badgeText, badge);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+            else
+            {
+                GUILayout.Label(title, heading);
+            }
+            if (!string.IsNullOrEmpty(description))
+            {
+                GUILayout.Space(S.S(3));
+                GUILayout.Label(description, S.Description, GUILayout.Width(textWidth));
+            }
+            GUILayout.EndVertical();
+            EndCentered();
+            GUILayout.FlexibleSpace();
+
+            if (hotkeyId != null)
+            {
+                BeginCentered(rowHeight, HotkeyStyle(hotkeyId).fixedHeight);
+                HotkeyButton(hotkeyId);
+                EndCentered();
+                GUILayout.Space(S.S(10));
+            }
+
+            BeginCentered(rowHeight, switchHeight);
+            if (Widgets.Switch(S, Theme.Accent, id, on))
+                Later(toggle);
+            EndCentered();
+            GUILayout.EndHorizontal();
+        }
+
+        private string HotkeyLabel(string hotkeyId)
+        {
+            if (_hotkeys.ListeningFor == hotkeyId)
+                return "Press a key...";
+            FeatureHotkeys.Binding binding = _hotkeys.Find(hotkeyId);
+            return binding == null || binding.Key == KeyCode.None ? "+ Key" : FeatureHotkeys.KeyName(binding.Key);
+        }
+
+        private GUIStyle HotkeyStyle(string hotkeyId)
+        {
+            if (_hotkeys.ListeningFor == hotkeyId)
+                return S.KeycapListening;
+            FeatureHotkeys.Binding binding = _hotkeys.Find(hotkeyId);
+            return binding == null || binding.Key == KeyCode.None ? S.KeycapEmpty : S.Keycap;
+        }
+
+        private float HotkeyButtonWidth(string hotkeyId) => HotkeyStyle(hotkeyId).CalcSize(new GUIContent(HotkeyLabel(hotkeyId))).x;
+
+        private void HotkeyButton(string hotkeyId)
+        {
+            FeatureHotkeys.Binding binding = _hotkeys.Find(hotkeyId);
+            string tooltip = binding == null ? "" : "Hotkey for " + binding.Label + " (Backspace clears)";
+            if (GUILayout.Button(new GUIContent(HotkeyLabel(hotkeyId), tooltip), HotkeyStyle(hotkeyId), GUILayout.Width(HotkeyButtonWidth(hotkeyId))))
+                Later(() => _hotkeys.BeginListening(hotkeyId));
+        }
+
+        private float SliderRow(string label, string valueText, float value, float min, float max, float step = 0f)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, new GUIStyle(S.Body) { normal = { textColor = Theme.TextSoft }, fontSize = S.Description.fontSize });
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(valueText, new GUIStyle(S.BodyStrong) { fontSize = S.Description.fontSize });
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(2));
+            return Widgets.Slider(S, Theme.Accent, value, min, max, step);
+        }
+
+        private bool Button(string text, GUIStyle style, params GUILayoutOption[] options) =>
+            GUILayout.Button(text, style, options);
+
+        private void Segmented(string[] labels, int selected, Action<int> pick, float width)
+        {
+            GUILayout.BeginHorizontal(S.SegmentContainer, GUILayout.Width(width));
+            float each = (width - S.SegmentContainer.padding.horizontal - S.S(4) * (labels.Length - 1)) / labels.Length;
+            for (int i = 0; i < labels.Length; i++)
+            {
+                int index = i;
+                if (GUILayout.Button(labels[i], i == selected ? S.SegmentOn : S.SegmentOff, GUILayout.Width(each)))
+                    Later(() => pick(index));
+                if (i < labels.Length - 1)
+                    GUILayout.Space(S.S(4));
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        private void ListRows<T>(IList<T> items, Action<T, int> drawRow)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                GUILayout.BeginHorizontal(S.ListRow);
+                drawRow(items[i], i);
+                GUILayout.EndHorizontal();
+                if (i < items.Count - 1)
+                    Widgets.Divider(S);
+            }
+        }
+
+        private void EmptyState(string message)
+        {
+            GUILayout.Space(S.S(6));
+            GUILayout.Label(message, S.Description);
+            GUILayout.Space(S.S(6));
+        }
+
+        private void Toggle(string name, bool nowOn) => Toasts.Show(name + (nowOn ? " on" : " off"));
+
+        // --- sections --------------------------------------------------------
+
+        private void DrawSection(float width)
+        {
+            switch (_section)
+            {
+                case Section.Home: DrawHome(width); break;
+                case Section.Movement: DrawMovement(width); break;
+                case Section.Camera: DrawCamera(width); break;
+                case Section.Teleports: DrawTeleports(width); break;
+                case Section.Performance: DrawPerformance(width); break;
+                case Section.Crashes: DrawCrashes(width); break;
+                case Section.Settings: DrawSettings(width); break;
+                case Section.Credits: DrawCredits(width); break;
+            }
+        }
+
+        // Home ------------------------------------------------------------------
+
+        private void DrawHome(float width)
+        {
+            if (_updateChecker.UpdateAvailable && _updateChecker.LatestVersion != DismissedUpdateVersion)
+                DrawUpdateBanner(width);
+
+            SectionLabel("Quick toggles");
+            float third = (width - Gap * 2f) / 3f;
+            GUILayout.BeginHorizontal();
+            QuickToggle(third, "home-fly", "Fly", _flyController.Flying, "On", () => { _flyController.Toggle(); Toggle("Fly", _flyController.Flying); });
+            GUILayout.Space(Gap);
+            QuickToggle(third, "home-speed", "Movement speed", _speedBoostController.Enabled, _speedBoostController.Multiplier.ToString("0.0") + "x",
+                () => { _speedBoostController.SetEnabled(!_speedBoostController.Enabled); Toggle("Movement speed", _speedBoostController.Enabled); });
+            GUILayout.Space(Gap);
+            QuickToggle(third, "home-knock", "Knockback immunity", _knockbackImmunityController.Enabled, "On · experimental",
+                () => { _knockbackImmunityController.Enabled = !_knockbackImmunityController.Enabled; Toggle("Knockback immunity", _knockbackImmunityController.Enabled); });
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(18));
+
+            SectionLabel("System");
+            Columns(width,
+                column => GraphCard(column, "Frames per second", _systemStatsController.FramesPerSecond.ToString("0"), "", _systemStatsController.FpsHistory, Theme.AccentText),
+                column => GraphCard(column, "RAM", SystemStatsController.BytesToMB(_systemStatsController.WorkingSetBytes()).ToString("N0"), " MB", _systemStatsController.RamHistoryMB, Theme.RamLine));
+
+            float quarter = (width - Gap * 3f) / 4f;
+            GUILayout.BeginHorizontal();
+            StatCard(quarter, "Frame time", _systemStatsController.FrameTimeMs.ToString("0.0") + " ms");
+            GUILayout.Space(Gap);
+            StatCard(quarter, "VRAM", _systemStatsController.HasVramReading
+                ? SystemStatsController.BytesToMB(_systemStatsController.GraphicsMemoryBytes()).ToString("N0") + " MB" : "n/a");
+            GUILayout.Space(Gap);
+            StatCard(quarter, "Managed heap", SystemStatsController.BytesToMB(_systemStatsController.ManagedMemoryBytes()).ToString("N0") + " MB");
+            GUILayout.Space(Gap);
+            StatCard(quarter, "Game uptime", _systemStatsController.GameUptime());
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawUpdateBanner(float width)
+        {
+            string latest = _updateChecker.LatestVersion;
+            float bannerTextHeight = LineHeight(S.BodyStrong) + S.S(2) + LineHeight(S.Description);
+            float bannerHeight = Mathf.Max(bannerTextHeight, S.Primary.fixedHeight);
+            GUILayout.BeginHorizontal(S.Banner, GUILayout.Width(width));
+            BeginCentered(bannerHeight, S.S(20));
+            Widgets.Icon(Icons.Download, S.S(20), Theme.AccentText);
+            EndCentered();
+            GUILayout.Space(S.S(14));
+            BeginCentered(bannerHeight, bannerTextHeight);
+            GUILayout.Label("Love Menu " + latest + " is available", S.BodyStrong);
+            GUILayout.Space(S.S(2));
+            GUILayout.Label("You have " + Version + ". Download the new exe and run it to update.", new GUIStyle(S.Description) { wordWrap = false });
+            EndCentered();
+            GUILayout.FlexibleSpace();
+            BeginCentered(bannerHeight, S.Primary.fixedHeight);
+            GUILayout.BeginHorizontal();
+            if (Button("Download", S.Primary))
+                Application.OpenURL(UpdateChecker.ReleasesPage);
+            GUILayout.Space(S.S(6));
+            if (GUILayout.Button(GUIContent.none, S.IconButton))
+                Later(() => DismissedUpdateVersion = latest);
+            Rect close = GUILayoutUtility.GetLastRect();
+            Widgets.DrawIcon(new Rect(close.center.x - S.S(7), close.center.y - S.S(7), S.S(14), S.S(14)), Icons.Close, Theme.TextSecondary);
+            GUILayout.EndHorizontal();
+            EndCentered();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(18));
+        }
+
+        private void QuickToggle(float width, string id, string title, bool on, string onText, Action toggle)
+        {
+            float blockHeight = LineHeight(S.CardTitle) + S.S(3) + LineHeight(S.Small);
+            GUILayout.BeginVertical(S.Card, GUILayout.Width(width));
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical();
+            GUILayout.Label(title, S.CardTitle);
+            GUILayout.Space(S.S(3));
+            GUILayout.Label(on ? onText : "Off", new GUIStyle(S.Small) { normal = { textColor = on ? Theme.AccentText : Theme.TextSecondary } });
+            GUILayout.EndVertical();
+            GUILayout.FlexibleSpace();
+            BeginCentered(blockHeight, S.S(24));
+            if (Widgets.Switch(S, Theme.Accent, id, on))
+                Later(toggle);
+            EndCentered();
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+        }
+
+        private void GraphCard(float width, string title, string value, string unit, List<float> samples, Color line)
+        {
+            Card(width, inner =>
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(title, new GUIStyle(S.Body) { normal = { textColor = Theme.TextSecondary } });
+                GUILayout.FlexibleSpace();
+                GUILayout.Label(value, S.StatValue);
+                if (unit.Length > 0)
+                    GUILayout.Label(unit, S.StatUnit);
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(8));
+                Rect graph = GUILayoutUtility.GetRect(inner, S.S(70), GUILayout.ExpandWidth(true), GUILayout.Height(S.S(70)));
+                (float min, float max) = AutoRange(samples);
+                if (Event.current.type == EventType.Repaint)
+                    GraphRenderer.DrawLineGraph(graph, samples, line, min, max);
+            });
+        }
+
+        private void StatCard(float width, string title, string value)
+        {
+            GUILayout.BeginVertical(S.Card, GUILayout.Width(width));
+            GUILayout.Label(title, S.Small);
+            GUILayout.Space(S.S(4));
+            GUILayout.Label(value, new GUIStyle(S.StatValueSmall) { wordWrap = false, clipping = TextClipping.Clip });
+            GUILayout.EndVertical();
+        }
+
         private static (float min, float max) AutoRange(List<float> samples)
         {
             if (samples.Count == 0)
                 return (0f, 1f);
-
-            float min = samples[0];
-            float max = samples[0];
+            float min = samples[0], max = samples[0];
             foreach (float sample in samples)
             {
                 if (sample < min) min = sample;
                 if (sample > max) max = sample;
             }
-
             float span = max - min;
             if (span < 0.0001f)
                 return (min - 1f, max + 1f);
-
-            float padding = span * 0.25f;
-            return (min - padding, max + padding);
+            return (min - span * 0.25f, max + span * 0.25f);
         }
 
-        private void DrawGraphCard(string title, string currentValueText, List<float> samples, Color lineColor, float cardWidth)
+        // Movement --------------------------------------------------------------
+
+        private void DrawMovement(float width)
         {
-            (float minValue, float maxValue) = AutoRange(samples);
-
-            GUILayout.BeginVertical(_styles.Card, GUILayout.Width(cardWidth));
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(title.ToUpperInvariant(), _styles.CardTitle);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(currentValueText, _styles.CardValue);
-            GUILayout.EndHorizontal();
-            GUILayout.Space(6);
-
-            Rect graphRect = GUILayoutUtility.GetRect(10, 74, GUILayout.ExpandWidth(true));
-            GraphRenderer.DrawLineGraph(graphRect, samples, lineColor, minValue, maxValue);
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(samples.Count == 0 ? "" : minValue.ToString("0"), _styles.Meta);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(samples.Count == 0 ? "collecting..." : maxValue.ToString("0"), _styles.Meta);
-            GUILayout.EndHorizontal();
-            GUILayout.EndVertical();
-        }
-
-        private string PositionText()
-        {
-            if (_playerContext.Avatar == null)
-                return "—";
-            Vector3 position = _playerContext.Avatar.transform.position;
-            return position.x.ToString("0.0") + ", " + position.y.ToString("0.0") + ", " + position.z.ToString("0.0");
-        }
-
-        private const float StatusCardHeight = 62f;
-
-        private void DrawStatusCard(string title, string value, bool active)
-        {
-            // Fixed height and non-wrapping title keep every card in a row
-            // the same size - a title that wrapped to two lines used to make
-            // its card taller and leave the whole row ragged.
-            GUILayout.BeginVertical(_styles.Card, GUILayout.Width((_contentWidth - 24f) / 4f), GUILayout.Height(StatusCardHeight));
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(title.ToUpperInvariant(), _styles.CardTitle);
-            GUILayout.FlexibleSpace();
-            if (active)
+            Columns(width, column =>
             {
-                Rect dot = GUILayoutUtility.GetRect(7, 7, GUILayout.Width(7), GUILayout.Height(7));
-                Color prev = GUI.color;
-                GUI.color = Theme.Accent;
-                GUI.DrawTexture(dot, Texture2D.whiteTexture);
-                GUI.color = prev;
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(value, _styles.CardValue);
-            GUILayout.EndVertical();
-        }
-
-        // --- Movement -----------------------------------------------------
-
-        private void DrawMovementSection()
-        {
-            _movementScrollPosition = GUILayout.BeginScrollView(_movementScrollPosition, GUILayout.ExpandHeight(true));
-
-            BeginCard();
-            CardHeaderRow("Fly", _keybinds.FlyUpKey + " = up  ·  " + _keybinds.FlyDownKey + " = down  ·  WASD move",
-                _flyController.Flying, _flyController.Toggle);
-            GUILayout.Space(6);
-            GUILayout.Label("Speed   " + _flyController.Speed.ToString("0.0"), _styles.Description);
-            _flyController.Speed = GUILayout.HorizontalSlider(_flyController.Speed, 1f, 25f);
-            GUILayout.Space(4);
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Unstick (pop up)", _styles.ToggleOff))
-                _flyController.Unstick();
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            EndCard();
-
-            BeginCard();
-            CardHeaderRow("Lock Body Rotation", "Stops right-click camera drag from also turning your avatar",
-                _bodyRotationLockController.Enabled, () => _bodyRotationLockController.SetEnabled(!_bodyRotationLockController.Enabled));
-            EndCard();
-
-            BeginCard();
-            CardHeaderRow("Movement Speed", "Multiplies normal walk speed",
-                _speedBoostController.Enabled, () => _speedBoostController.SetEnabled(!_speedBoostController.Enabled));
-            GUILayout.Space(6);
-            GUILayout.Label("Multiplier   " + _speedBoostController.Multiplier.ToString("0.0") + "x", _styles.Description);
-            float newMultiplier = GUILayout.HorizontalSlider(_speedBoostController.Multiplier, 1f, 4f);
-            if (!Mathf.Approximately(newMultiplier, _speedBoostController.Multiplier))
-            {
-                _speedBoostController.Multiplier = newMultiplier;
-                if (_speedBoostController.Enabled)
-                    _speedBoostController.ApplyMultiplier();
-            }
-            EndCard();
-
-            BeginCard();
-            CardHeaderRow("Knockback Immunity", "Reverts sudden shoves (snowballs, etc.)",
-                _knockbackImmunityController.Enabled, () => _knockbackImmunityController.Enabled = !_knockbackImmunityController.Enabled);
-            EndCard();
-
-            GUILayout.EndScrollView();
-        }
-
-        // --- Teleports ----------------------------------------------------
-
-        // Waypoints and Friends share the top row; Quest Objects sits
-        // underneath across the full width, where long object names
-        // actually fit.
-        private void DrawTeleportsSection()
-        {
-            float halfWidth = _contentWidth / 2f - 8f;
-            float topRowHeight = 190f;
-            _teleportColumnWidth = 0f; // quest cards span the full content width now
-
-            GUILayout.BeginHorizontal(GUILayout.Height(topRowHeight));
-
-            GUILayout.BeginVertical(GUILayout.Width(halfWidth));
-            DrawWaypointsSubsection(ListHeightFor(_teleportController.Waypoints.Count, topRowHeight - 58f));
-            GUILayout.EndVertical();
-
-            GUILayout.Space(16);
-
-            GUILayout.BeginVertical();
-            DrawTeleportToFriendSubsection(ListHeightFor(_teleportController.NearbyFriends.Count, topRowHeight - 84f));
-            GUILayout.EndVertical();
-
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(10);
-            DrawCollectiblesSubsection(ListHeightFor(_teleportController.NearbyCollectibles.Count, 360f));
-        }
-
-        private float _teleportColumnWidth;
-
-        // Lists only ever need to scroll vertically - leaving the
-        // horizontal bar enabled added a stray scrollbar along the bottom
-        // of every list and stole a row of height.
-        private Vector2 BeginVerticalOnlyScrollView(Vector2 scrollPosition, float height)
-        {
-            return GUILayout.BeginScrollView(scrollPosition, false, false,
-                GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView, GUILayout.Height(height));
-        }
-
-        private Vector2 _collectiblesScrollPosition;
-
-        // Matches the quest types the tracker actually lists (bottles,
-        // letters, potions, pets) - one click instead of retyping.
-        private static readonly string[] QuestSearchQuickTerms = { "bottle", "letter", "potion", "pet" };
-
-        private void DrawCollectiblesSubsection(float listHeight)
-        {
-            GUILayout.Label("Quest Objects", _styles.Label);
-            GUILayout.Label("Finds objects in this room by name - bottles, letters, anything.", _styles.Description);
-            GUILayout.Space(6);
-
-            GUILayout.BeginHorizontal();
-            _teleportController.CollectibleSearchTerm = GUILayout.TextField(_teleportController.CollectibleSearchTerm, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("Find", _styles.ToggleOn, GUILayout.Width(60)))
-                _teleportController.RefreshNearbyCollectibles();
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(4);
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button(_teleportController.StrictNames ? "Strict: ON" : "Strict: OFF",
-                _teleportController.StrictNames ? _styles.ToggleOn : _styles.ToggleOff, GUILayout.Width(90)))
-            {
-                _teleportController.StrictNames = !_teleportController.StrictNames;
-                _teleportController.RefreshNearbyCollectibles();
-            }
-            foreach (string quickTerm in QuestSearchQuickTerms)
-            {
-                bool isCurrent = string.Equals(_teleportController.CollectibleSearchTerm, quickTerm, StringComparison.OrdinalIgnoreCase);
-                if (GUILayout.Button(quickTerm, isCurrent ? _styles.ToggleOn : _styles.Chip))
+                Card(column, inner =>
                 {
-                    _teleportController.CollectibleSearchTerm = quickTerm;
-                    _teleportController.RefreshNearbyCollectibles();
+                    ToggleRow(inner, "fly", "Fly", "Fly freely with WASD. Also gets you out of places you're stuck in.",
+                        _flyController.Flying, () => { _flyController.Toggle(); Toggle("Fly", _flyController.Flying); }, hotkeyId: "fly");
+                    GUILayout.Space(S.S(12));
+                    _flyController.Speed = SliderRow("Fly speed", _flyController.Speed.ToString("0"), _flyController.Speed, 1f, 25f, 1f);
+                    GUILayout.Space(S.S(12));
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(FeatureHotkeys.KeyName(_keybinds.FlyUpKey), MiniKeycap());
+                    GUILayout.Space(S.S(6));
+                    GUILayout.Label("up", S.Small);
+                    GUILayout.Space(S.S(14));
+                    GUILayout.Label(FeatureHotkeys.KeyName(_keybinds.FlyDownKey), MiniKeycap());
+                    GUILayout.Space(S.S(6));
+                    GUILayout.Label("down", S.Small);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(12));
+                    GUILayout.BeginHorizontal();
+                    if (Button("Unstick me", S.Secondary))
+                    {
+                        _flyController.Unstick();
+                        Toasts.Show("Popped up 3 m");
+                    }
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                });
+            }, column =>
+            {
+                Card(column, inner =>
+                {
+                    ToggleRow(inner, "speed", "Movement speed", "Multiplies your normal walk and run speed.",
+                        _speedBoostController.Enabled, () => { _speedBoostController.SetEnabled(!_speedBoostController.Enabled); Toggle("Movement speed", _speedBoostController.Enabled); },
+                        hotkeyId: "speed");
+                    GUILayout.Space(S.S(12));
+                    float multiplier = SliderRow("Multiplier", _speedBoostController.Multiplier.ToString("0.0") + "x", _speedBoostController.Multiplier, 1f, 4f, 0.1f);
+                    if (!Mathf.Approximately(multiplier, _speedBoostController.Multiplier))
+                    {
+                        _speedBoostController.Multiplier = multiplier;
+                        if (_speedBoostController.Enabled)
+                            _speedBoostController.ApplyMultiplier();
+                    }
+                });
+                Card(column, inner => ToggleRow(inner, "knock", "Knockback immunity",
+                    "Holds your spot against snowballs and thrown balls while you're standing still.",
+                    _knockbackImmunityController.Enabled,
+                    () => { _knockbackImmunityController.Enabled = !_knockbackImmunityController.Enabled; Toggle("Knockback immunity", _knockbackImmunityController.Enabled); },
+                    hotkeyId: "knockback", badge: S.BadgeWarning, badgeText: "EXPERIMENTAL"));
+                Card(column, inner => ToggleRow(inner, "body", "Lock body rotation", "Right-click camera drag no longer turns your avatar.",
+                    _bodyRotationLockController.Enabled,
+                    () => { _bodyRotationLockController.SetEnabled(!_bodyRotationLockController.Enabled); Toggle("Lock body rotation", _bodyRotationLockController.Enabled); }));
+            });
+        }
+
+        // Camera ----------------------------------------------------------------
+
+        private void DrawCamera(float width)
+        {
+            Columns(width, column =>
+            {
+                Card(column, inner =>
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.BeginVertical(GUILayout.Width(inner - S.S(90)));
+                    GUILayout.Label("Field of view", S.CardTitle);
+                    GUILayout.Space(S.S(3));
+                    GUILayout.Label("How wide the camera sees. The game default is 65.", S.Description, GUILayout.Width(inner - S.S(90)));
+                    GUILayout.EndVertical();
+                    GUILayout.FlexibleSpace();
+                    if (Button("Reset", S.Secondary))
+                    {
+                        _cameraController.ResetFov();
+                        Toasts.Show("Field of view reset to 65");
+                    }
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(12));
+                    _cameraController.Fov = SliderRow("FOV", _cameraController.Fov.ToString("0") + "°", _cameraController.Fov, 50f, 110f, 1f);
+                });
+                Card(column, inner =>
+                {
+                    GUILayout.Label("Zoom-out limit", S.CardTitle);
+                    GUILayout.Space(S.S(3));
+                    GUILayout.Label("How far the scroll wheel can pull the camera back. Saved by the game itself.", S.Description, GUILayout.Width(inner));
+                    GUILayout.Space(S.S(12));
+                    int distance = _cameraController.ZoomDistance;
+                    float picked = SliderRow("Max distance", distance + " m", distance, CameraController.MinZoomDistance, CameraController.MaxZoomDistance, 1f);
+                    if (Mathf.RoundToInt(picked) != distance)
+                        _cameraController.ZoomDistance = Mathf.RoundToInt(picked);
+                });
+            }, column =>
+            {
+                Card(column, inner =>
+                {
+                    FeatureHotkeys.Binding binding = _hotkeys.Find("screenshot");
+                    string exitHint = binding != null && binding.Key != KeyCode.None
+                        ? " Press " + FeatureHotkeys.KeyName(binding.Key) + " or " + FeatureHotkeys.KeyName(_keybinds.MenuKey) + " to bring everything back."
+                        : " Press " + FeatureHotkeys.KeyName(_keybinds.MenuKey) + " to bring everything back.";
+                    ToggleRow(inner, "shot", "Screenshot mode", "Hides the HUD, chat, name tags and this menu." + exitHint,
+                        _cameraController.ScreenshotMode, () => _cameraController.SetScreenshotMode(!_cameraController.ScreenshotMode), hotkeyId: "screenshot");
+                    GUILayout.Space(S.S(12));
+                    Widgets.Divider(S);
+                    GUILayout.Space(S.S(12));
+                    ToggleRow(inner, "shot-avatar", "Also hide my avatar", null, _cameraController.HideOwnAvatarInScreenshots,
+                        () => _cameraController.HideOwnAvatarInScreenshots = !_cameraController.HideOwnAvatarInScreenshots, titleStyle: S.BodyStrong);
+                });
+            });
+        }
+
+        // Teleports -------------------------------------------------------------
+
+        private void DrawTeleports(float width)
+        {
+            Columns(width, column => Card(column, inner =>
+            {
+                GUILayout.Label("Find objects", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Search this room by name and jump to what you find.", S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(12));
+
+                GUILayout.BeginHorizontal();
+                _teleportController.CollectibleSearchTerm = GUILayout.TextField(_teleportController.CollectibleSearchTerm, S.TextField, GUILayout.Width(inner - S.S(80)));
+                GUILayout.Space(S.S(8));
+                if (Button("Find", S.Primary, GUILayout.Width(S.S(72))))
+                    Later(_teleportController.RefreshNearbyCollectibles);
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(10));
+
+                GUILayout.BeginHorizontal();
+                foreach (string term in QuickSearchTerms)
+                {
+                    bool current = string.Equals(_teleportController.CollectibleSearchTerm, term, StringComparison.OrdinalIgnoreCase);
+                    string picked = term;
+                    if (Button(term, current ? S.ChipActive : S.Chip))
+                        Later(() => { _teleportController.CollectibleSearchTerm = picked; _teleportController.RefreshNearbyCollectibles(); });
+                    GUILayout.Space(S.S(6));
                 }
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.Space(6);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(10));
+                ToggleRow(inner, "strict", "Exact names only", "Off also matches names that only contain the word.",
+                    _teleportController.StrictNames,
+                    () => { _teleportController.StrictNames = !_teleportController.StrictNames; _teleportController.RefreshNearbyCollectibles(); },
+                    titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(12));
 
-            _collectiblesScrollPosition = BeginVerticalOnlyScrollView(_collectiblesScrollPosition, listHeight);
-            if (_teleportController.NearbyCollectibles.Count == 0)
+                var found = _teleportController.NearbyCollectibles;
+                if (found.Count == 0)
+                {
+                    EmptyState(string.IsNullOrEmpty(_teleportController.CollectibleSearchStatus)
+                        ? "Type what to look for, then Find." : _teleportController.CollectibleSearchStatus);
+                }
+                else
+                {
+                    float listHeight = Mathf.Min(found.Count * S.S(46), S.S(280));
+                    _collectiblesScroll = GUILayout.BeginScrollView(_collectiblesScroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUIStyle.none, GUILayout.Height(listHeight));
+                    ListRows(found, (item, index) =>
+                    {
+                        CenteredLabel(item.Name, new GUIStyle(S.Body) { wordWrap = false, clipping = TextClipping.Clip }, S.Go.fixedHeight, GUILayout.Width(inner - S.S(150)));
+                        GUILayout.FlexibleSpace();
+                        CenteredLabel(_teleportController.DistanceFromPlayer(item.Position).ToString("0") + " m", S.Small, S.Go.fixedHeight);
+                        GUILayout.Space(S.S(10));
+                        Vector3 target = item.Position;
+                        if (Button("Go", S.Go))
+                            _teleportController.GoToPosition(target);
+                    });
+                    GUILayout.EndScrollView();
+                    GUILayout.Space(S.S(6));
+                    GUILayout.Label(_teleportController.CollectibleSearchStatus, S.Small);
+                }
+            }), column =>
             {
-                DrawEmptyState(string.IsNullOrEmpty(_teleportController.CollectibleSearchStatus)
-                    ? "Type what to look for, then Find."
-                    : _teleportController.CollectibleSearchStatus);
-            }
-            else
+                Card(column, inner =>
+                {
+                    GUILayout.Label("Waypoints", S.CardTitle);
+                    GUILayout.Space(S.S(3));
+                    GUILayout.Label("Save spots and come back to them.", S.Description, GUILayout.Width(inner));
+                    GUILayout.Space(S.S(12));
+                    GUILayout.BeginHorizontal();
+                    _newWaypointName = GUILayout.TextField(_newWaypointName, S.TextField, GUILayout.Width(inner - S.S(122)));
+                    GUILayout.Space(S.S(8));
+                    if (Button("+ Save here", S.Secondary, GUILayout.Width(S.S(114))))
+                    {
+                        string name = _newWaypointName;
+                        Later(() =>
+                        {
+                            _teleportController.SaveWaypoint(name);
+                            _newWaypointName = "";
+                            Toasts.Show("Waypoint saved");
+                        });
+                    }
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(12));
+
+                    var waypoints = _teleportController.Waypoints;
+                    if (waypoints.Count == 0)
+                    {
+                        EmptyState("No waypoints yet. Type a name and save where you stand.");
+                    }
+                    else
+                    {
+                        float listHeight = Mathf.Min(waypoints.Count * S.S(46), S.S(220));
+                        _waypointsScroll = GUILayout.BeginScrollView(_waypointsScroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUIStyle.none, GUILayout.Height(listHeight));
+                        ListRows(waypoints, (waypoint, index) =>
+                        {
+                            CenteredLabel(waypoint.Name, new GUIStyle(S.Body) { wordWrap = false, clipping = TextClipping.Clip }, S.Go.fixedHeight, GUILayout.Width(inner - S.S(120)));
+                            GUILayout.FlexibleSpace();
+                            Vector3 target = waypoint.Position;
+                            if (Button("Go", S.Go))
+                                _teleportController.GoToPosition(target);
+                            GUILayout.Space(S.S(6));
+                            int removeIndex = index;
+                            if (Button("×", new GUIStyle(S.Go) { normal = { background = null, textColor = Theme.TextSecondary } }, GUILayout.Width(S.S(28))))
+                                Later(() => _teleportController.Waypoints.RemoveAt(removeIndex));
+                        });
+                        GUILayout.EndScrollView();
+                    }
+                });
+                Card(column, inner =>
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.BeginVertical(GUILayout.Width(inner - S.S(100)));
+                    GUILayout.Label("Teleport to a friend", S.CardTitle);
+                    GUILayout.Space(S.S(3));
+                    GUILayout.Label("Friends currently in this room.", S.Description, GUILayout.Width(inner - S.S(100)));
+                    GUILayout.EndVertical();
+                    GUILayout.FlexibleSpace();
+                    if (Button("Refresh", S.Secondary))
+                        Later(_teleportController.RefreshNearbyFriends);
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(12));
+                    var friends = _teleportController.NearbyFriends;
+                    if (friends.Count == 0)
+                    {
+                        EmptyState(string.IsNullOrEmpty(_teleportController.FriendSearchStatus)
+                            ? "Press Refresh to look for friends here." : _teleportController.FriendSearchStatus);
+                        return;
+                    }
+                    ListRows(friends, (friend, index) =>
+                    {
+                        BeginCentered(S.S(28), S.S(8));
+                        Widgets.Dot(S, S.S(8), Theme.Online);
+                        EndCentered();
+                        GUILayout.Space(S.S(10));
+                        CenteredLabel(friend.Name, S.Body, S.S(28));
+                        GUILayout.FlexibleSpace();
+                        Vector3 target = friend.Position;
+                        if (Button("Teleport", new GUIStyle(S.Primary) { fixedHeight = S.S(28), fontSize = Mathf.RoundToInt(S.S(12.5f)) }))
+                            _teleportController.GoToFriend(target);
+                    });
+                });
+            });
+        }
+
+        // Performance -----------------------------------------------------------
+
+        private static readonly string[] TextureQualityNames = { "Full", "Half", "Quarter", "Eighth" };
+
+        private void DrawPerformance(float width)
+        {
+            Columns(width, column => Card(column, inner =>
             {
-                foreach (var (objectName, objectPosition) in _teleportController.NearbyCollectibles)
-                    DrawCollectibleCard(objectName, objectPosition);
-            }
-            GUILayout.EndScrollView();
+                GUILayout.Label("Memory", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Busy rooms keep assets of players who already left. This frees them without changing zone.", S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(12));
 
-            if (_teleportController.NearbyCollectibles.Count > 0)
-                GUILayout.Label(_teleportController.CollectibleSearchStatus, _styles.Meta);
-        }
+                float ramMB = SystemStatsController.BytesToMB(_systemStatsController.WorkingSetBytes());
+                float systemMB = Mathf.Max(1f, SystemInfo.systemMemorySize);
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Game RAM", new GUIStyle(S.Small) { normal = { textColor = Theme.TextSoft } });
+                GUILayout.FlexibleSpace();
+                GUILayout.Label(ramMB.ToString("N0") + " MB of " + (systemMB / 1024f).ToString("0") + " GB", new GUIStyle(S.BodyStrong) { fontSize = S.Small.fontSize });
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(6));
+                Widgets.Bar(S, ramMB / systemMB, Theme.RamLine);
+                GUILayout.Space(S.S(12));
 
-        private void DrawCollectibleCard(string objectName, Vector3 objectPosition)
-        {
-            // The text block gets an explicit width so a long object name
-            // can't expand the row and shove the Go button out of view.
-            float rightColumnWidth = Mathf.Max(120f, _contentWidth - _teleportColumnWidth - 60f);
-            float textWidth = Mathf.Max(60f, rightColumnWidth - 110f);
+                GUILayout.BeginHorizontal();
+                if (Button("Free memory now", S.Primary))
+                {
+                    _performanceController.FreeUnusedMemory();
+                    Toasts.Show(_performanceController.LastFreeResult);
+                }
+                GUILayout.Space(S.S(10));
+                CenteredLabel("short freeze, about 0.3 s", S.Small, S.Primary.fixedHeight);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
 
-            BeginCard();
-            GUILayout.BeginHorizontal();
-            GUILayout.BeginVertical(GUILayout.Width(textWidth));
-            GUILayout.Label(objectName, _styles.CardValue);
-            GUILayout.Label(_teleportController.DistanceFromPlayer(objectPosition).ToString("0") + "m away", _styles.Description);
-            GUILayout.EndVertical();
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Go", _styles.ToggleOn, GUILayout.Width(44)))
-                _teleportController.GoToPosition(objectPosition);
-            GUILayout.EndHorizontal();
-            EndCard();
-        }
-
-        private void DrawWaypointsSubsection(float listHeight)
-        {
-            GUILayout.Label("Waypoints", _styles.Label);
-            GUILayout.BeginHorizontal();
-            _newWaypointNameInput = GUILayout.TextField(_newWaypointNameInput, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("Save spot", _styles.ToggleOff, GUILayout.Width(110)))
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+                ToggleRow(inner, "autofree", "Auto-free when RAM is high", "At most once every 90 s.",
+                    _performanceController.AutoFreeEnabled,
+                    () => { _performanceController.AutoFreeEnabled = !_performanceController.AutoFreeEnabled; Toggle("Auto-free", _performanceController.AutoFreeEnabled); },
+                    titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(12));
+                _performanceController.AutoFreeThresholdMB = SliderRow("Trigger above", _performanceController.AutoFreeThresholdMB.ToString("N0") + " MB",
+                    _performanceController.AutoFreeThresholdMB, 2000f, 12000f, 500f);
+            }), column =>
             {
-                _teleportController.SaveWaypoint(_newWaypointNameInput);
-                _newWaypointNameInput = "";
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.Space(6);
-
-            _waypointsScrollPosition = BeginVerticalOnlyScrollView(_waypointsScrollPosition, listHeight);
-            if (_teleportController.Waypoints.Count == 0)
-                DrawEmptyState("No waypoints saved yet.");
-            for (int waypointIndex = _teleportController.Waypoints.Count - 1; waypointIndex >= 0; waypointIndex--)
-                DrawWaypointCard(waypointIndex);
-            GUILayout.EndScrollView();
+                Card(column, inner =>
+                {
+                    ToggleRow(inner, "wings", "Hide player wings", "Cheapest win in a crowded room. Turning it off brings them back.",
+                        _wingsHiderController.Enabled,
+                        () => { _wingsHiderController.Enabled = !_wingsHiderController.Enabled; Toggle("Hide wings", _wingsHiderController.Enabled); },
+                        hotkeyId: "wings");
+                    if (_wingsHiderController.Enabled)
+                    {
+                        GUILayout.Space(S.S(8));
+                        GUILayout.Label(_wingsHiderController.HiddenCount + " wing part(s) hidden right now", S.Small);
+                    }
+                });
+                Card(column, inner =>
+                {
+                    GUILayout.Label("Graphics", S.CardTitle);
+                    GUILayout.Space(S.S(3));
+                    GUILayout.Label("Texture resolution is the biggest RAM and VRAM saving. Applies as textures reload.", S.Description, GUILayout.Width(inner));
+                    GUILayout.Space(S.S(12));
+                    int textureLimit = Mathf.Clamp(_performanceController.TextureQualityLimit, 0, TextureQualityNames.Length - 1);
+                    Segmented(TextureQualityNames, textureLimit, index => _performanceController.TextureQualityLimit = index, inner);
+                    GUILayout.Space(S.S(14));
+                    _performanceController.ShadowDistance = SliderRow("Shadow distance", _performanceController.ShadowDistance.ToString("0"),
+                        _performanceController.ShadowDistance, 0f, 200f, 5f);
+                    GUILayout.Space(S.S(10));
+                    _performanceController.LodBias = SliderRow("Model detail (LOD bias)", _performanceController.LodBias.ToString("0.00"),
+                        _performanceController.LodBias, 0.3f, 2f, 0.05f);
+                    GUILayout.Space(S.S(12));
+                    GUILayout.BeginHorizontal();
+                    if (Button("Reset to game defaults", S.Secondary))
+                    {
+                        _performanceController.ResetGraphicsToGameDefaults();
+                        Toasts.Show("Graphics reset to game defaults");
+                    }
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                });
+            });
         }
 
-        private void DrawWaypointCard(int waypointIndex)
-        {
-            Waypoint waypoint = _teleportController.Waypoints[waypointIndex];
-            BeginCard();
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(waypoint.Name, _styles.Label);
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Go", _styles.ToggleOn, GUILayout.Width(40)))
-                _teleportController.GoToPosition(waypoint.Position);
-            if (GUILayout.Button("×", _styles.ToggleOff, GUILayout.Width(28)))
-                _teleportController.Waypoints.RemoveAt(waypointIndex);
-            GUILayout.EndHorizontal();
-            GUILayout.Label(
-                "X " + waypoint.Position.x.ToString("0.0") +
-                "   Y " + waypoint.Position.y.ToString("0.0") +
-                "   Z " + waypoint.Position.z.ToString("0.0"), _styles.Description);
-            EndCard();
-        }
+        // Crashes ---------------------------------------------------------------
 
-        private void DrawTeleportToFriendSubsection(float listHeight)
+        private void DrawCrashes(float width)
         {
-            GUILayout.Label("Teleport to Friend", _styles.Label);
-            GUILayout.Label("Only friends currently visible in this room.", _styles.Description);
-            GUILayout.Space(6);
-
-            GUILayout.BeginVertical(GUILayout.Height(listHeight));
-            if (_teleportController.NearbyFriends.Count == 0)
+            Card(width, inner =>
             {
-                DrawEmptyState(string.IsNullOrEmpty(_teleportController.FriendSearchStatus)
-                    ? "No visible friends yet."
-                    : _teleportController.FriendSearchStatus);
-            }
-            else
+                const string watchdogText = "If the game stops responding for 10 s, a crash dump is saved so the cause can be found.";
+                float textWidth = inner - S.S(210);
+                float blockHeight = LineHeight(S.CardTitle) + S.S(3) + TextHeight(S.Description, watchdogText, textWidth);
+                GUILayout.BeginHorizontal();
+                BeginCentered(blockHeight, S.S(10));
+                Widgets.Dot(S, S.S(10), Theme.Online);
+                EndCentered();
+                GUILayout.Space(S.S(14));
+                GUILayout.BeginVertical(GUILayout.Width(textWidth));
+                GUILayout.Label("Freeze watchdog is on", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label(watchdogText, S.Description, GUILayout.Width(textWidth));
+                GUILayout.EndVertical();
+                GUILayout.FlexibleSpace();
+                BeginCentered(blockHeight, S.Secondary.fixedHeight);
+                if (Button("Open dumps folder", S.Secondary))
+                    OpenCrashDumpFolder();
+                EndCentered();
+                GUILayout.EndHorizontal();
+            });
+
+            Columns(width, column => Card(column, inner =>
             {
-                foreach (var (friendName, friendPosition) in _teleportController.NearbyFriends)
-                    DrawNearbyFriendCard(friendName, friendPosition);
-            }
-            GUILayout.EndVertical();
-
-            GUILayout.Space(6);
-            GUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Refresh", _styles.ToggleOff, GUILayout.Width(110)))
-                _teleportController.RefreshNearbyFriends();
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawNearbyFriendCard(string friendName, Vector3 friendPosition)
-        {
-            BeginCard();
-            GUILayout.BeginHorizontal();
-            Rect dot = GUILayoutUtility.GetRect(7, 7, GUILayout.Width(7), GUILayout.Height(7));
-            dot.y += 3;
-            Color prev = GUI.color;
-            GUI.color = Theme.Accent;
-            GUI.DrawTexture(dot, Texture2D.whiteTexture);
-            GUI.color = prev;
-            GUILayout.Space(4);
-            GUILayout.Label(friendName, _styles.Label);
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Teleport", _styles.ToggleOn, GUILayout.Width(80)))
-                _teleportController.GoToFriend(friendPosition);
-            GUILayout.EndHorizontal();
-            EndCard();
-        }
-
-        // --- Performance --------------------------------------------------
-
-        private Vector2 _performanceScrollPosition;
-
-        private void DrawPerformanceSection()
-        {
-            _performanceScrollPosition = GUILayout.BeginScrollView(_performanceScrollPosition, GUILayout.ExpandHeight(true));
-
-            BeginCard();
-            GUILayout.Label("Memory", _styles.Label);
-            GUILayout.Label(
-                "Unity only unloads unused assets when the scene changes. In a busy hub, avatars " +
-                "stream in and out constantly and the assets of players who already left stay in " +
-                "memory until you change zone - which is why RAM climbs into the multi-GB range " +
-                "while standing still. This runs the engine's own unload pass on demand.",
-                _styles.Description);
-            GUILayout.Space(4);
-            GUILayout.Label("Costs a brief freeze (~0.3s) while it runs.", _styles.Meta);
-            GUILayout.Space(8);
-
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Free Unused Memory Now", _styles.ToggleOn, GUILayout.Width(200)))
-                _performanceController.FreeUnusedMemory();
-            GUILayout.Space(10);
-            GUILayout.Label(_performanceController.LastFreeResult, _styles.Description);
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(10);
-            CardHeaderRow("Auto-free when RAM is high",
-                "Runs the same pass automatically, at most once every 90s",
-                _performanceController.AutoFreeEnabled,
-                () => _performanceController.AutoFreeEnabled = !_performanceController.AutoFreeEnabled);
-            GUILayout.Label("Trigger above   " + _performanceController.AutoFreeThresholdMB.ToString("0") + " MB", _styles.Description);
-            _performanceController.AutoFreeThresholdMB = GUILayout.HorizontalSlider(_performanceController.AutoFreeThresholdMB, 2000f, 12000f);
-            EndCard();
-
-            BeginCard();
-            CardHeaderRow("Hide Player Wings",
-                "Wing attachments are multi-LOD skinned meshes worn by many players at once - " +
-                "hiding them is the cheapest win in a crowded room",
-                _wingsHiderController.Enabled, () => _wingsHiderController.Enabled = !_wingsHiderController.Enabled);
-            if (_wingsHiderController.Enabled)
-                GUILayout.Label(_wingsHiderController.HiddenCount + " wing renderer(s) hidden - toggling off restores them", _styles.Meta);
-            EndCard();
-
-            BeginCard();
-            GUILayout.Label("Graphics", _styles.Label);
-            GUILayout.Label("Live Unity quality settings - lower costs less memory and gives more frames.", _styles.Description);
-            GUILayout.Space(8);
-
-            string[] textureQualityNames = { "Full", "Half", "Quarter", "Eighth" };
-            int currentTextureLimit = Mathf.Clamp(_performanceController.TextureQualityLimit, 0, textureQualityNames.Length - 1);
-            GUILayout.Label("Texture Resolution   " + textureQualityNames[currentTextureLimit], _styles.Description);
-            GUILayout.BeginHorizontal();
-            for (int i = 0; i < textureQualityNames.Length; i++)
+                GUILayout.Label("Fixed crashes", S.CardTitle);
+                GUILayout.Space(S.S(12));
+                var fixes = _crashWorkaroundController.ConfirmedFixes;
+                if (fixes.Count == 0)
+                    EmptyState("No confirmed crash causes yet.");
+                for (int i = 0; i < fixes.Count; i++)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("FIXED", S.BadgeSuccess);
+                    GUILayout.Space(S.S(8));
+                    GUILayout.Label(fixes[i].Name, S.BodyStrong);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(4));
+                    GUILayout.Label(fixes[i].Description, S.Description, GUILayout.Width(inner));
+                    if (i < fixes.Count - 1)
+                        GUILayout.Space(S.S(14));
+                }
+            }), column => Card(column, inner =>
             {
-                if (GUILayout.Button(textureQualityNames[i], i == currentTextureLimit ? _styles.ToggleOn : _styles.ToggleOff))
-                    _performanceController.TextureQualityLimit = i;
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.Label("Biggest single RAM/VRAM saving available. Takes effect as textures reload.", _styles.Meta);
-
-            GUILayout.Space(10);
-            GUILayout.Label("Shadow Distance   " + _performanceController.ShadowDistance.ToString("0"), _styles.Description);
-            _performanceController.ShadowDistance = GUILayout.HorizontalSlider(_performanceController.ShadowDistance, 0f, 200f);
-
-            GUILayout.Space(6);
-            GUILayout.Label("LOD Bias   " + _performanceController.LodBias.ToString("0.00") +
-                "   (lower = simpler models sooner)", _styles.Description);
-            _performanceController.LodBias = GUILayout.HorizontalSlider(_performanceController.LodBias, 0.3f, 2f);
-
-            GUILayout.Space(10);
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Reset to game defaults", _styles.ToggleOff, GUILayout.Width(200)))
-                _performanceController.ResetGraphicsToGameDefaults();
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            EndCard();
-
-            GUILayout.EndScrollView();
-        }
-
-        // --- Crashes ------------------------------------------------------
-
-        private void DrawCrashesSection()
-        {
-            DrawDiagnosticsCard();
-
-            bool nothingToShow = _crashWorkaroundController.Workarounds.Count == 0 &&
-                _crashWorkaroundController.ConfirmedFixes.Count == 0;
-            if (nothingToShow)
-            {
-                BeginCard();
-                GUILayout.Label("No confirmed crash causes yet.", _styles.Label);
-                GUILayout.Space(6);
-                GUILayout.Label(
-                    "LoveMenuLauncher.exe now saves every session's logs permanently to its own " +
-                    "Logs\\ folder (bepinex_history.log, plus archived Unity player logs) instead " +
-                    "of overwriting them each relaunch. Next time the game actually crashes or " +
-                    "hangs, that history has what's needed to find the real cause - a toggle gets " +
-                    "added here once one's confirmed.",
-                    _styles.Description);
-                EndCard();
-                return;
-            }
-
-            foreach (CrashWorkaround workaround in _crashWorkaroundController.Workarounds)
-                DrawCrashWorkaroundCard(workaround);
-
-            foreach (ConfirmedCrashFix fix in _crashWorkaroundController.ConfirmedFixes)
-                DrawConfirmedFixCard(fix);
-        }
-
-        private void DrawDiagnosticsCard()
-        {
-            BeginCard();
-            GUILayout.Label("Diagnostics", _styles.Label);
-            GUILayout.Label(
-                "Watches for the main thread going quiet for 10s and writes a real .dmp crash " +
-                "dump the moment that happens - useful for hangs, which otherwise leave no trace " +
-                "at all (no exception, no Windows crash report). Exceptions are also logged here " +
-                "immediately, separately from Player.log.",
-                _styles.Description);
-            GUILayout.Space(6);
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Open Dumps Folder", _styles.ToggleOff, GUILayout.Width(160)))
-                OpenCrashDumpFolder();
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            EndCard();
+                GUILayout.Label("Experimental workarounds", S.CardTitle);
+                GUILayout.Space(S.S(12));
+                var workarounds = _crashWorkaroundController.Workarounds;
+                if (workarounds.Count == 0)
+                    EmptyState("None right now.");
+                for (int i = 0; i < workarounds.Count; i++)
+                {
+                    CrashWorkaround workaround = workarounds[i];
+                    ToggleRow(inner, "workaround-" + i, workaround.Name, workaround.Description + " Turn it off if anything acts up.",
+                        workaround.Enabled, () => _crashWorkaroundController.SetEnabled(workaround, !workaround.Enabled), titleStyle: S.BodyStrong);
+                    if (i < workarounds.Count - 1)
+                        GUILayout.Space(S.S(14));
+                }
+            }));
         }
 
         private void OpenCrashDumpFolder()
@@ -999,186 +1238,218 @@ namespace FlyMod.UI
             }
         }
 
-        private void DrawConfirmedFixCard(ConfirmedCrashFix fix)
+        // Settings --------------------------------------------------------------
+
+        private void DrawSettings(float width)
         {
-            BeginCard();
+            Columns(width, column => Card(column, inner =>
+            {
+                GUILayout.Label("Keys", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Click a key, then press the new one. Esc cancels. Feature keys sit next to each switch.", S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(10));
+                KeyRow("Open menu", Keybinds.RebindTarget.Menu, _keybinds.MenuKey);
+                KeyRow("Fly up", Keybinds.RebindTarget.Up, _keybinds.FlyUpKey);
+                KeyRow("Fly down", Keybinds.RebindTarget.Down, _keybinds.FlyDownKey);
+                GUILayout.Space(S.S(8));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+                ToggleRow(inner, "promo", "Hide promo popups", "Closes sale popups for 45 s after you spawn. Shop and help still open.",
+                    _promoPopupController.Enabled,
+                    () => { _promoPopupController.Enabled = !_promoPopupController.Enabled; Toggle("Hide promo popups", _promoPopupController.Enabled); },
+                    titleStyle: S.BodyStrong);
+            }), column => Card(column, inner =>
+            {
+                GUILayout.Label("Appearance", S.CardTitle);
+                GUILayout.Space(S.S(12));
+                GUILayout.Label("Accent", new GUIStyle(S.Small) { normal = { textColor = Theme.TextSoft } });
+                GUILayout.Space(S.S(6));
+                GUILayout.BeginHorizontal();
+                for (int i = 0; i < Theme.AccentNames.Length; i++)
+                    AccentSwatch(i);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(12));
+                Theme.Alpha = SliderRow("Background opacity", Mathf.RoundToInt(Theme.Alpha * 100f) + "%", Theme.Alpha, 0.4f, 1f, 0.01f);
+                GUILayout.Space(S.S(14));
+                ToggleRow(inner, "autoscale", "Auto size", "Scales the menu to your screen (1080p, 1440p, 4K).", Theme.AutoScale,
+                    () => Theme.AutoScale = !Theme.AutoScale, titleStyle: S.BodyStrong);
+                if (!Theme.AutoScale)
+                {
+                    GUILayout.Space(S.S(12));
+                    float size = SliderRow("Menu size", Mathf.RoundToInt(Theme.UIScale * 100f) + "%", Theme.UIScale, 0.75f, 2.5f, 0.05f);
+                    // Applied after the frame: resizing mid-draw would change every rect IMGUI just laid out.
+                    if (!Mathf.Approximately(size, Theme.UIScale))
+                        Later(() => Theme.UIScale = size);
+                }
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+                GUILayout.BeginHorizontal();
+                bool confirming = Time.unscaledTime < _resetConfirmUntil;
+                if (Button(confirming ? "Click again to reset everything" : "Reset all settings", S.Danger))
+                {
+                    if (confirming)
+                    {
+                        _resetConfirmUntil = 0f;
+                        Later(() => { _onResetAllSettings?.Invoke(); Toasts.Show("All settings reset"); });
+                    }
+                    else
+                    {
+                        _resetConfirmUntil = Time.unscaledTime + 3f;
+                    }
+                }
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }));
+
+            Card(width, inner => DrawOverlaySettings(inner));
+        }
+
+        private void KeyRow(string label, Keybinds.RebindTarget target, KeyCode key)
+        {
+            GUILayout.BeginHorizontal();
+            CenteredLabel(label, S.Body, S.Keycap.fixedHeight);
+            GUILayout.FlexibleSpace();
+            bool listening = _keybinds.Rebinding == target;
+            if (Button(listening ? "Press a key..." : FeatureHotkeys.KeyName(key), listening ? S.KeycapListening : S.Keycap, GUILayout.MinWidth(S.S(72))))
+                Later(() => _keybinds.BeginRebind(target));
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(4));
+        }
+
+        private void AccentSwatch(int index)
+        {
+            Rect rect = GUILayoutUtility.GetRect(S.S(30), S.S(30), GUILayout.Width(S.S(30)), GUILayout.Height(S.S(30)));
+            if (GUI.Button(rect, GUIContent.none, GUIStyle.none))
+                Later(() => Theme.Index = index);
+            if (Event.current.type == EventType.Repaint)
+            {
+                Color previous = GUI.color;
+                if (Theme.Index == index)
+                {
+                    GUI.color = Color.white * previous;
+                    GUI.DrawTexture(rect, S.Circle);
+                    float inset = S.S(2.5f);
+                    GUI.color = Theme.AccentAt(index) * previous;
+                    GUI.DrawTexture(new Rect(rect.x + inset, rect.y + inset, rect.width - inset * 2f, rect.height - inset * 2f), S.Circle);
+                }
+                else
+                {
+                    GUI.color = Theme.AccentAt(index) * previous;
+                    GUI.DrawTexture(rect, S.Circle);
+                }
+                GUI.color = previous;
+            }
+            GUILayout.Space(S.S(8));
+        }
+
+        private static readonly string[] CornerNames = { "Top left", "Top right", "Bottom left", "Bottom right" };
+
+        private void DrawOverlaySettings(float inner)
+        {
+            float previewWidth = S.S(220);
+            float controlsWidth = inner - previewWidth - S.S(24);
 
             GUILayout.BeginHorizontal();
-            Rect dotRect = GUILayoutUtility.GetRect(9, 9, GUILayout.Width(9), GUILayout.Height(9));
-            dotRect.y += 3;
-            Color prev = GUI.color;
-            GUI.color = Theme.Accent;
-            GUI.DrawTexture(dotRect, Texture2D.whiteTexture);
-            GUI.color = prev;
-            GUILayout.Space(6);
-            GUILayout.Label("FIXED", new GUIStyle(_styles.Description) { normal = { textColor = Theme.Accent }, fontStyle = FontStyle.Bold });
+            GUILayout.BeginVertical(GUILayout.Width(controlsWidth));
+            ToggleRow(controlsWidth, "overlay", "Mini overlay", "A small readout that stays on screen, even with the menu closed.",
+                _overlay.Enabled, () => { _overlay.Enabled = !_overlay.Enabled; Toggle("Mini overlay", _overlay.Enabled); });
+            GUILayout.Space(S.S(12));
+            GUILayout.BeginHorizontal();
+            OverlayChip("FPS", _overlay.ShowFps, () => _overlay.ShowFps = !_overlay.ShowFps);
+            OverlayChip("RAM", _overlay.ShowRam, () => _overlay.ShowRam = !_overlay.ShowRam);
+            OverlayChip("Active features", _overlay.ShowActiveFeatures, () => _overlay.ShowActiveFeatures = !_overlay.ShowActiveFeatures);
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
-
-            GUILayout.Space(4);
-            GUILayout.Label(fix.Name, _styles.Label);
-            GUILayout.Label(fix.Description, _styles.Description);
-
-            EndCard();
-        }
-
-        private void DrawCrashWorkaroundCard(CrashWorkaround workaround)
-        {
-            GUILayout.BeginVertical(_styles.WarningCard);
-
-            GUILayout.BeginHorizontal();
-            Rect iconRect = GUILayoutUtility.GetRect(16, 16, GUILayout.Width(16), GUILayout.Height(16));
-            Color prev = GUI.color;
-            GUI.color = new Color(1f, 0.7f, 0.3f);
-            GUI.DrawTexture(iconRect, Icons.Warning);
-            GUI.color = prev;
-            GUILayout.Space(6);
-            GUILayout.Label("EXPERIMENTAL", new GUIStyle(_styles.Description) { normal = { textColor = new Color(1f, 0.7f, 0.3f) }, fontStyle = FontStyle.Bold });
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(4);
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(workaround.Name, _styles.Label);
+            GUILayout.Space(S.S(12));
+            Segmented(CornerNames, (int)_overlay.Position, index => _overlay.Position = (MiniOverlay.Corner)index, Mathf.Min(controlsWidth, S.S(460)));
+            GUILayout.EndVertical();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(workaround.Enabled ? "ON" : "OFF", workaround.Enabled ? _styles.ToggleOn : _styles.ToggleOff, GUILayout.Width(60)))
-                _crashWorkaroundController.SetEnabled(workaround, !workaround.Enabled);
-            GUILayout.EndHorizontal();
-            GUILayout.Label(workaround.Description, _styles.Description);
-            GUILayout.Space(4);
-            GUILayout.Label("Disable it if it causes unexpected behavior.", _styles.Meta);
 
+            Rect preview = GUILayoutUtility.GetRect(previewWidth, S.S(124), GUILayout.Width(previewWidth), GUILayout.Height(S.S(124)));
+            if (Event.current.type == EventType.Repaint)
+            {
+                Color previous = GUI.color;
+                GUI.color = Hex(0x2d3340) * previous;
+                S.FillShape.Draw(preview, false, false, false, false);
+                GUI.color = previous;
+                GUI.Label(new Rect(preview.x + S.S(8), preview.y + S.S(4), preview.width, S.S(20)), "Game view", new GUIStyle(S.Small) { normal = { textColor = Hex(0xcfd4de) } });
+                if (_overlay.Enabled)
+                {
+                    string text = _overlay.Text();
+                    if (text.Length == 0)
+                        text = "Nothing selected";
+                    var content = new GUIContent(text);
+                    var pill = new GUIStyle(S.OverlayPill) { fontSize = Mathf.RoundToInt(S.S(10.5f)) };
+                    Vector2 size = pill.CalcSize(content);
+                    size.x = Mathf.Min(size.x, preview.width - S.S(16));
+                    float margin = S.S(8);
+                    bool left = _overlay.Position == MiniOverlay.Corner.TopLeft || _overlay.Position == MiniOverlay.Corner.BottomLeft;
+                    bool top = _overlay.Position == MiniOverlay.Corner.TopLeft || _overlay.Position == MiniOverlay.Corner.TopRight;
+                    float x = left ? preview.x + margin : preview.xMax - size.x - margin;
+                    float y = top ? preview.y + S.S(24) : preview.yMax - size.y - margin;
+                    GUI.Label(new Rect(x, y, size.x, size.y), content, pill);
+                }
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        private void OverlayChip(string label, bool on, Action toggle)
+        {
+            if (Button(label, on ? S.ChipActive : S.Chip))
+                Later(toggle);
+            GUILayout.Space(S.S(6));
+        }
+
+        // Credits ---------------------------------------------------------------
+
+        private void DrawCredits(float width)
+        {
+            Card(Mathf.Min(width, S.S(520)), inner =>
+            {
+                GUILayout.BeginHorizontal();
+                DrawInitialBadge("NNKtv28", S.S(44), S.Title);
+                GUILayout.Space(S.S(14));
+                var nameStyle = new GUIStyle(S.CardTitle) { fontSize = Mathf.RoundToInt(S.S(15)) };
+                BeginCentered(S.S(44), LineHeight(nameStyle) + S.S(2) + LineHeight(S.Small));
+                GUILayout.Label("NNKtv28", nameStyle);
+                GUILayout.Space(S.S(2));
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Author ·", S.Small);
+                GUILayout.Space(S.S(4));
+                if (GUILayout.Button("nikicoding.com", new GUIStyle(S.Small) { normal = { textColor = Theme.AccentText }, hover = { textColor = Theme.AccentTextSoft } }))
+                    Application.OpenURL("https://nikicoding.com");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                EndCentered();
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(14));
+
+                GUILayout.BeginHorizontal();
+                CreditsFact("Version", Version, inner / 2f);
+                CreditsFact("Mod loader", "BepInEx 5 · HarmonyLib", inner / 2f);
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(14));
+
+                GUILayout.BeginHorizontal();
+                if (Button("GitHub", S.Secondary))
+                    Application.OpenURL("https://github.com/NNKTV28/LoveMenu");
+                GUILayout.Space(S.S(8));
+                if (Button("Report a bug", S.Secondary))
+                    Application.OpenURL("https://github.com/NNKTV28/LoveMenu/issues/new/choose");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            });
+        }
+
+        private void CreditsFact(string label, string value, float width)
+        {
+            GUILayout.BeginVertical(GUILayout.Width(width));
+            GUILayout.Label(label, S.Small);
+            GUILayout.Space(S.S(2));
+            GUILayout.Label(value, S.Body);
             GUILayout.EndVertical();
-        }
-
-        // --- Credits --------------------------------------------------
-
-        private void DrawCreditsSection()
-        {
-            BeginCard();
-            GUILayout.Label("LOVE MENU", _styles.Header);
-            GUILayout.Label("Version " + Version, _styles.Description);
-            EndCard();
-
-            BeginCard();
-            GUILayout.Label("AUTHOR", _styles.Description);
-            GUILayout.Label("NNKtv28", _styles.Label);
-            if (GUILayout.Button("nikicoding.com", _styles.ToggleOff, GUILayout.Width(160)))
-                Application.OpenURL("https://nikicoding.com");
-            EndCard();
-
-            BeginCard();
-            GUILayout.Label("MOD LOADER", _styles.Description);
-            GUILayout.Label("BepInEx 5", _styles.Label);
-            GUILayout.Label("HarmonyLib", _styles.Label);
-            EndCard();
-
-            BeginCard();
-            GUILayout.Label("BUILT WITH REFERENCE TO", _styles.Description);
-            GUILayout.Label("Assembly-CSharp.dll, VWW.CoreLibs.* - read via reflection for real\nclass/field/method names, nothing copied or included.", _styles.Label);
-            GUILayout.Space(4);
-            GUILayout.Label("ILSpy - decompiled to find the real send/event code paths.", _styles.Label);
-            GUILayout.Space(4);
-            GUILayout.Label("lcmem - this project's own live memory-reading toolkit, used for\ninvestigation before this became a proper BepInEx plugin.", _styles.Label);
-            EndCard();
-        }
-
-        // --- Settings ---------------------------------------------------
-
-        private void DrawSettingsSection()
-        {
-            _settingsScrollPosition = GUILayout.BeginScrollView(_settingsScrollPosition, GUILayout.ExpandHeight(true));
-            GUILayout.BeginHorizontal();
-
-            GUILayout.BeginVertical(GUILayout.Width(_contentWidth / 2f - 12f));
-            DrawAppearanceSubsection();
-            GUILayout.EndVertical();
-
-            GUILayout.BeginVertical();
-            DrawKeybindsSubsection();
-            DrawPopupsSubsection();
-            GUILayout.EndVertical();
-
-            GUILayout.EndHorizontal();
-            GUILayout.EndScrollView();
-        }
-
-        private void DrawPopupsSubsection()
-        {
-            BeginCard();
-            CardHeaderRow("Hide Promo Popups", "Closes the sale / promotions popups for the first 45s after spawning - shop and help stay openable",
-                _promoPopupController.Enabled, () => _promoPopupController.Enabled = !_promoPopupController.Enabled);
-            EndCard();
-        }
-
-        private void DrawAppearanceSubsection()
-        {
-            BeginCard();
-            GUILayout.Label("Appearance", _styles.Label);
-
-            GUILayout.Space(8);
-            GUILayout.Label("Accent Color", _styles.Description);
-            DrawAccentSwatches();
-
-            GUILayout.Space(10);
-            GUILayout.Label("Background", _styles.Description);
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Game", NearlyEqual(Theme.Alpha, Theme.BackgroundGame) ? _styles.ToggleOn : _styles.ToggleOff))
-                Theme.Alpha = Theme.BackgroundGame;
-            if (GUILayout.Button("Dimmed", NearlyEqual(Theme.Alpha, Theme.BackgroundDimmed) ? _styles.ToggleOn : _styles.ToggleOff))
-                Theme.Alpha = Theme.BackgroundDimmed;
-            if (GUILayout.Button("Solid", NearlyEqual(Theme.Alpha, Theme.BackgroundSolid) ? _styles.ToggleOn : _styles.ToggleOff))
-                Theme.Alpha = Theme.BackgroundSolid;
-            GUILayout.EndHorizontal();
-            GUILayout.Label("Fine transparency   " + Theme.Alpha.ToString("0.00"), _styles.Description);
-            Theme.Alpha = GUILayout.HorizontalSlider(Theme.Alpha, 0.4f, 1f);
-
-            GUILayout.Space(10);
-            GUILayout.Label("UI Scale   " + Theme.UIScale.ToString("0.00") + "x", _styles.Description);
-            Theme.UIScale = GUILayout.HorizontalSlider(Theme.UIScale, 0.85f, 1.3f);
-            EndCard();
-        }
-
-        private static bool NearlyEqual(float a, float b) => Mathf.Abs(a - b) < 0.01f;
-
-        private void DrawAccentSwatches()
-        {
-            GUILayout.BeginHorizontal();
-            for (int i = 0; i < Theme.AccentNames.Length; i++)
-                DrawAccentSwatch(i);
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawAccentSwatch(int accentIndex)
-        {
-            bool isSelected = Theme.Index == accentIndex;
-            if (GUILayout.Button(isSelected ? "●" : "○", GUILayout.Width(36), GUILayout.Height(28)))
-                Theme.Index = accentIndex;
-        }
-
-        private void DrawKeybindsSubsection()
-        {
-            BeginCard();
-            GUILayout.Label("Keybinds", _styles.Label);
-            GUILayout.Space(6);
-            DrawKeybindRow("Menu", Keybinds.RebindTarget.Menu, _keybinds.MenuKey);
-            DrawKeybindRow("Fly up", Keybinds.RebindTarget.Up, _keybinds.FlyUpKey);
-            DrawKeybindRow("Fly down", Keybinds.RebindTarget.Down, _keybinds.FlyDownKey);
-            if (_keybinds.Rebinding != Keybinds.RebindTarget.None)
-                GUILayout.Label("Press any key... (Esc to cancel)", _styles.Description);
-            EndCard();
-        }
-
-        private void DrawKeybindRow(string label, Keybinds.RebindTarget target, KeyCode currentKey)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(label, _styles.Label, GUILayout.Width(80));
-            GUILayout.FlexibleSpace();
-            bool isWaitingForKeyPress = _keybinds.Rebinding == target;
-            string buttonLabel = isWaitingForKeyPress ? "..." : currentKey.ToString();
-            if (GUILayout.Button(buttonLabel, isWaitingForKeyPress ? _styles.ToggleOn : _styles.Keycap, GUILayout.Width(100)))
-                _keybinds.BeginRebind(target);
-            GUILayout.EndHorizontal();
-            GUILayout.Space(4);
         }
     }
 }

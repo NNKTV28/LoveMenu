@@ -2,8 +2,9 @@
 
 A BepInEx 5 + Harmony plugin for the Lovecraft (Curio) client. It adds an
 in-game menu (default key **F7**) with client-side features: fly,
-speed boost, teleport, knockback immunity, body-rotation lock, wings hider,
-performance and system stats, and several crash workarounds.
+speed boost, teleports, field of view and screenshot mode, knockback
+immunity, body-rotation lock, wings hider, performance tools, a mini FPS/RAM
+overlay, per-feature hotkeys and several crash fixes.
 
 Full documentation: [wiki](https://github.com/NNKTV28/LoveMenu/wiki/Love-Menu).
 
@@ -38,7 +39,7 @@ Core/          shared plumbing: logging, reflection helpers, player context, cra
 Features/      one controller (and Harmony patch, where needed) per feature
 Inputs/        rebindable keys
 Settings/      persisted plugin settings
-UI/            IMGUI menu, styles, theme, graphs
+UI/            IMGUI menu, styles, widgets, overlay, toasts, graphs
 Launcher/      the launcher: finds the game, installs the plugin, starts it, tails the log
 ```
 

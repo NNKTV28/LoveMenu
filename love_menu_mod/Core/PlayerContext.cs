@@ -2,37 +2,54 @@ using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using VWW.Clients.Curio.Avatar;
+using VWW.Clients.Curio;
+using VWW.CoreLibs.Shared;
 
 namespace FlyMod.Core
 {
-    // Resolves and caches the local avatar, derives a display name from it,
+    // Resolves and caches the local avatar, reads the player's display name,
     // and detects whether a chat/text input box currently has focus - WASD
     // and other movement keys double as normal typing while one does, so
     // every movement feature needs to know this before reading input.
     internal class PlayerContext
     {
         public AvControl Avatar { get; private set; }
-        public string PlayerName { get; private set; } = "—";
+        public string PlayerName { get; private set; } = "";
+        private float _nextNameAttemptTime;
         public bool TypingInChat { get; private set; }
 
         public void UpdateForThisFrame()
         {
-            ResolveAvatarAndNameIfNeeded();
+            ResolveAvatarIfNeeded();
+            ResolveNameIfNeeded();
             TypingInChat = IsChatInputFieldFocused();
         }
 
-        private void ResolveAvatarAndNameIfNeeded()
+        private void ResolveAvatarIfNeeded()
         {
-            if (Avatar != null)
-                return;
-
-            Avatar = UnityEngine.Object.FindObjectOfType<AvControl>();
             if (Avatar == null)
-                return;
+                Avatar = UnityEngine.Object.FindObjectOfType<AvControl>();
+        }
 
-            bool nameNotYetResolved = PlayerName == "—" || string.IsNullOrEmpty(PlayerName);
-            if (nameNotYetResolved)
-                PlayerName = string.IsNullOrEmpty(Avatar.transform.root.name) ? "Player" : Avatar.transform.root.name;
+        // The avatar's GameObject is just called "_Self", so the name comes
+        // from the social service, the same call the game's own scripts use
+        // (SocialGlobal.GetMyName). Retried until the login has finished.
+        private void ResolveNameIfNeeded()
+        {
+            if (PlayerName.Length > 0 || Time.unscaledTime < _nextNameAttemptTime)
+                return;
+            _nextNameAttemptTime = Time.unscaledTime + 2f;
+            try
+            {
+                ClientAPI client = Singleton<ClientAPI>.Current;
+                string name = client?.SocialManager?.GetInfo(client.ViewManager.PersonaID)?.Name;
+                if (!string.IsNullOrEmpty(name))
+                    PlayerName = name;
+            }
+            catch (Exception)
+            {
+                // not logged in yet - try again shortly
+            }
         }
 
         private static bool IsChatInputFieldFocused()
