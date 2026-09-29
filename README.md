@@ -12,7 +12,11 @@ client by The Virtual World Web Inc.). Press **F7** in game to open it.
   the menu, and starts the game.
 - **Movement:** fly (through walls), movement speed, unstick, body rotation lock.
 - **Camera:** field of view, zoom-out limit, screenshot mode that hides the HUD.
-- **Teleports:** find objects and keys in the room, waypoints, teleport to friends.
+- **Teleports:** find quest items (keys, seashells, letters, flowers) and walk
+  through them one by one, go to the safe or the quest NPC, waypoints,
+  teleport to friends and NPCs.
+- **Quests:** quiz helper marks the right answer in green, log of what you
+  collected today.
 - **Performance:** free memory, hide wings, texture quality, FPS/RAM overlay.
 - **Quality of life:** hotkeys for any feature, settings search, update notices,
   crash diagnostics.

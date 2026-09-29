@@ -18,7 +18,7 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.4.0";
+        public const string Version = "1.5.0";
 
         private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits }
 
@@ -40,7 +40,7 @@ namespace FlyMod.UI
             ("Fly", Section.Movement), ("Fly speed", Section.Movement), ("Unstick me", Section.Movement),
             ("Movement speed", Section.Movement), ("Knockback immunity", Section.Movement), ("Lock body rotation", Section.Movement),
             ("Field of view (FOV)", Section.Camera), ("Zoom-out limit", Section.Camera), ("Screenshot mode", Section.Camera),
-            ("Find objects and keys", Section.Teleports), ("Waypoints", Section.Teleports), ("Teleport to a friend", Section.Teleports),
+            ("Find objects (seashells, letters, flowers, keys)", Section.Teleports), ("List object names", Section.Teleports), ("Go to next item", Section.Teleports), ("Go to safe (Key Hunter)", Section.Teleports), ("NPCs / quest givers", Section.Teleports), ("Quest giver (Diego)", Section.Teleports), ("Quiz helper / quiz answers", Section.Teleports), ("Collected today", Section.Teleports), ("Waypoints", Section.Teleports), ("Teleport to a friend", Section.Teleports),
             ("Free memory", Section.Performance), ("Auto-free RAM", Section.Performance), ("Hide player wings", Section.Performance),
             ("Texture resolution", Section.Performance), ("Shadow distance", Section.Performance), ("LOD bias", Section.Performance),
             ("Crash dumps", Section.Crashes), ("DynamicBones guard", Section.Crashes),
@@ -49,13 +49,28 @@ namespace FlyMod.UI
             ("Reset all settings", Section.Settings), ("Check for updates", Section.Home), ("Version", Section.Credits),
         };
 
-        // Matches the room objects players look for most.
-        private static readonly string[] QuickSearchTerms = { "key", "letter", "potion", "pet" };
+        // The pickups of the current collect quests. Seashell pickups are
+        // server objects called "Shell_..."; the flower pickups' name isn't
+        // confirmed yet, so that button tries the likely flower words at once
+        // (use List names in the flower quest area to find the real one).
+        private static readonly (string Label, string Terms)[] QuickSearches =
+        {
+            // Pickups are "Shell_01 9", "Shell_03 2", "Shell_02 Ref 1"; plain
+            // "shell" also found the "Seashell Beach Signpost".
+            ("seashells", "Shell_0"),
+            ("letters", "letter"),
+            // FX_GiftboxAura is the glow the game puts around pickups; found
+            // next to the flowers. No "rose": Rose_Podium_Book matched it.
+            ("flowers", "GiftboxAura|flower|blossom|bloom|petal|hibiscus|plumeria|orchid|lotus|lily|tulip|daisy|sunflower"),
+            ("keys", "key"),
+        };
 
         public bool Open { get; private set; }
         // Read by the game-input patches: while true, the game ignores the
         // mouse wheel and treats clicks as clicks on its own UI.
-        public static bool IsMouseOverOpenMenu => _mouseOverWindow || WelcomeBlocksMouse;
+        public static bool IsMouseOverOpenMenu => _mouseOverWindow || WelcomeBlocksMouse || _mouseOverQuizPanel;
+        private static bool _mouseOverQuizPanel;
+        public static void UpdateQuizPanelHover(bool over) => _mouseOverQuizPanel = over;
         private static bool _mouseOverWindow;
         public static bool WelcomeBlocksMouse;
 
@@ -88,6 +103,7 @@ namespace FlyMod.UI
         private readonly Action _onMenuClosed;
         private readonly Action _onResetAllSettings;
         public Action OnShowWelcome;
+        public CollectionLogger Collections;
 
         private MenuStyles S => Styles;
         private Section _section = Section.Home;
@@ -383,7 +399,10 @@ namespace FlyMod.UI
             _searchQuery = "";
             // Friends come and go; show who is here now rather than a stale list.
             if (section == Section.Teleports)
+            {
                 _teleportController.RefreshNearbyFriends();
+                _teleportController.RefreshNearbyNpcs();
+            }
         }
 
         private static string TitleOf(Section section)
@@ -760,6 +779,11 @@ namespace FlyMod.UI
             QuickToggle(third, "home-knock", "Knockback immunity", _knockbackImmunityController.Enabled, "On · experimental",
                 () => { _knockbackImmunityController.Enabled = !_knockbackImmunityController.Enabled; Toggle("Knockback immunity", _knockbackImmunityController.Enabled); });
             GUILayout.EndHorizontal();
+            GUILayout.Space(Gap);
+            GUILayout.BeginHorizontal();
+            QuickToggle(third, "home-quiz", "Quiz helper", QuizHelper.Enabled, QuizHelper.Active ? "On · quiz running" : "On", ToggleQuizHelper);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
             GUILayout.Space(S.S(18));
 
             SectionLabel("System");
@@ -809,6 +833,14 @@ namespace FlyMod.UI
             EndCentered();
             GUILayout.EndHorizontal();
             GUILayout.Space(S.S(18));
+        }
+
+        private void ToggleQuizHelper()
+        {
+            QuizHelper.Enabled = !QuizHelper.Enabled;
+            if (!QuizHelper.Enabled)
+                QuizHelper.Visible = false;
+            Toggle("Quiz helper", QuizHelper.Enabled);
         }
 
         private void QuickToggle(float width, string id, string title, bool on, string onText, Action toggle)
@@ -1008,13 +1040,34 @@ namespace FlyMod.UI
                 GUILayout.Space(S.S(10));
 
                 GUILayout.BeginHorizontal();
-                foreach (string term in QuickSearchTerms)
+                foreach (var quick in QuickSearches)
                 {
-                    bool current = string.Equals(_teleportController.CollectibleSearchTerm, term, StringComparison.OrdinalIgnoreCase);
-                    string picked = term;
-                    if (Button(term, current ? S.ChipActive : S.Chip))
+                    bool current = string.Equals(_teleportController.CollectibleSearchTerm, quick.Terms, StringComparison.OrdinalIgnoreCase);
+                    string picked = quick.Terms;
+                    if (Button(quick.Label, current ? S.ChipActive : S.Chip))
                         Later(() => { _teleportController.CollectibleSearchTerm = picked; _teleportController.RefreshNearbyCollectibles(); });
                     GUILayout.Space(S.S(6));
+                }
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(8));
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Don't know what it's called?", S.Small);
+                GUILayout.Space(S.S(8));
+                if (Button("List names", new GUIStyle(S.Go) { fixedHeight = S.S(24) }))
+                {
+                    string names = _teleportController.DescribeRoomObjectNames();
+                    DebugLog.Info("Room object names (List names):\n" + names);
+                    GUIUtility.systemCopyBuffer = names;
+                    Toasts.Show("Object names copied and written to the log");
+                }
+                GUILayout.Space(S.S(6));
+                if (Button("Near me", new GUIStyle(S.Go) { fixedHeight = S.S(24) }))
+                {
+                    string names = _teleportController.DescribeObjectsNearPlayer(4f);
+                    DebugLog.Info("Objects within 4 m (Near me):\n" + names);
+                    GUIUtility.systemCopyBuffer = names;
+                    Toasts.Show("Names of everything within 4 m copied");
                 }
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -1023,6 +1076,49 @@ namespace FlyMod.UI
                     _teleportController.StrictNames,
                     () => { _teleportController.StrictNames = !_teleportController.StrictNames; _teleportController.RefreshNearbyCollectibles(); },
                     titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(12));
+
+                // Go to next: nearest match not visited yet. You pick it up
+                // yourself, then press again (or use its hotkey).
+                GUILayout.BeginHorizontal();
+                if (Button("Go to next", S.Primary))
+                    Later(() => Toasts.Show(_teleportController.GoToNextCollectible()));
+                GUILayout.Space(S.S(10));
+                BeginCentered(S.Primary.fixedHeight, HotkeyStyle("nextpickup").fixedHeight);
+                HotkeyButton("nextpickup");
+                EndCentered();
+                // Key Hunter: carry up to 5 keys, then deposit them at the safe.
+                if (_teleportController.SearchingForKeys)
+                {
+                    GUILayout.Space(S.S(14));
+                    BeginCentered(S.Primary.fixedHeight, S.Secondary.fixedHeight);
+                    if (Button("Go to safe", S.Secondary))
+                        Later(() => Toasts.Show(_teleportController.GoToSafe()));
+                    EndCentered();
+                    GUILayout.Space(S.S(10));
+                    BeginCentered(S.Primary.fixedHeight, HotkeyStyle("gotosafe").fixedHeight);
+                    HotkeyButton("gotosafe");
+                    EndCentered();
+                }
+                GUILayout.FlexibleSpace();
+                // Picked-up items vanish from the room, so what's still found
+                // is what's left.
+                int left = _teleportController.NearbyCollectibles.Count;
+                CenteredLabel(left == 0 ? "" : left + " left here",
+                    new GUIStyle(S.BodyStrong) { normal = { textColor = Theme.AccentText } }, S.Primary.fixedHeight);
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(10));
+
+                // Back to the NPC that gives and takes the collect quests.
+                GUILayout.BeginHorizontal();
+                if (Button("Quest giver", S.Secondary))
+                    Later(() => Toasts.Show(_teleportController.GoToQuestGiver()));
+                GUILayout.Space(S.S(10));
+                BeginCentered(S.Secondary.fixedHeight, HotkeyStyle("questgiver").fixedHeight);
+                HotkeyButton("questgiver");
+                EndCentered();
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
                 GUILayout.Space(S.S(12));
 
                 var found = _teleportController.NearbyCollectibles;
@@ -1042,8 +1138,12 @@ namespace FlyMod.UI
                         CenteredLabel(_teleportController.DistanceFromPlayer(item.Position).ToString("0") + " m", S.Small, S.Go.fixedHeight);
                         GUILayout.Space(S.S(10));
                         Vector3 target = item.Position;
+                        string key = item.Key;
                         if (Button("Go", S.Go))
+                        {
+                            _teleportController.MarkCollectibleVisited(key);
                             _teleportController.GoToPosition(target);
+                        }
                     });
                     GUILayout.EndScrollView();
                     GUILayout.Space(S.S(6));
@@ -1130,7 +1230,111 @@ namespace FlyMod.UI
                             _teleportController.GoToFriend(target);
                     });
                 });
+                Card(column, DrawNpcsCard);
+                if (Collections != null)
+                    Card(column, DrawCollectedCard);
+                Card(column, DrawQuizCard);
             });
+        }
+
+        // Quest givers and other server-run characters, for getting back to
+        // the NPC that hands out (and takes back) a collect quest.
+        private Vector2 _npcScroll;
+
+        private void DrawNpcsCard(float inner)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical(GUILayout.Width(inner - S.S(100)));
+            GUILayout.Label("NPCs in this room", S.CardTitle);
+            GUILayout.Space(S.S(3));
+            GUILayout.Label("Quest givers and other characters. Go takes you next to them.", S.Description, GUILayout.Width(inner - S.S(100)));
+            GUILayout.EndVertical();
+            GUILayout.FlexibleSpace();
+            if (Button("Refresh", S.Secondary))
+                Later(_teleportController.RefreshNearbyNpcs);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(12));
+
+            var npcs = _teleportController.NearbyNpcs;
+            if (npcs.Count == 0)
+            {
+                EmptyState(string.IsNullOrEmpty(_teleportController.NpcSearchStatus)
+                    ? "Press Refresh to list the NPCs here." : _teleportController.NpcSearchStatus);
+                return;
+            }
+            float listHeight = Mathf.Min(npcs.Count * S.S(46), S.S(230));
+            _npcScroll = GUILayout.BeginScrollView(_npcScroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUIStyle.none, GUILayout.Height(listHeight));
+            ListRows(npcs, (npc, index) =>
+            {
+                CenteredLabel(npc.Name, new GUIStyle(S.Body) { wordWrap = false, clipping = TextClipping.Clip }, S.Go.fixedHeight, GUILayout.Width(inner - S.S(130)));
+                GUILayout.FlexibleSpace();
+                CenteredLabel(_teleportController.DistanceFromPlayer(npc.Position).ToString("0") + " m", S.Small, S.Go.fixedHeight);
+                GUILayout.Space(S.S(10));
+                Vector3 target = npc.Position;
+                if (Button("Go", S.Go))
+                    _teleportController.GoToNpc(target);
+            });
+            GUILayout.EndScrollView();
+        }
+
+        private void DrawQuizCard(float inner)
+        {
+            ToggleRow(inner, "quiz", "Quiz helper",
+                "During a world quiz, the right answer's button turns green with a ✓. You still click it yourself.",
+                QuizHelper.Enabled, ToggleQuizHelper);
+            if (QuizHelper.Entries.Count > 0 && !QuizHelper.Visible)
+            {
+                GUILayout.Space(S.S(10));
+                GUILayout.BeginHorizontal();
+                if (Button("Show all answers", S.Secondary))
+                    Later(() => QuizHelper.Visible = true);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+        }
+
+        // What the player picked up today, from CollectionLogger.
+        private void DrawCollectedCard(float inner)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical(GUILayout.Width(inner - S.S(100)));
+            GUILayout.Label("Collected today", S.CardTitle);
+            GUILayout.Space(S.S(3));
+            GUILayout.Label("Anything you pick up is logged here and in collected.log.", S.Description, GUILayout.Width(inner - S.S(100)));
+            GUILayout.EndVertical();
+            GUILayout.FlexibleSpace();
+            if (Button("Open log", S.Secondary))
+                Collections.OpenLogFolder();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(12));
+
+            if (Collections.TodayTotal == 0)
+            {
+                EmptyState("Nothing yet today. Pick something up and it shows here.");
+                return;
+            }
+
+            GUILayout.BeginHorizontal();
+            foreach (var type in Collections.TodayCounts)
+            {
+                GUILayout.Label(type.Value + " " + type.Key, S.ChipActive);
+                GUILayout.Space(S.S(6));
+            }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(10));
+
+            int shown = 0;
+            foreach (CollectionLogger.Entry entry in Collections.Recent)
+            {
+                if (shown++ == 5)
+                    break;
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(entry.When.ToString("HH:mm"), S.Small, GUILayout.Width(S.S(44)));
+                GUILayout.Label(entry.Name, new GUIStyle(S.Body) { wordWrap = false, clipping = TextClipping.Clip }, GUILayout.Width(inner - S.S(50)));
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(4));
+            }
         }
 
         // Performance -----------------------------------------------------------
@@ -1250,6 +1454,15 @@ namespace FlyMod.UI
                 ToggleRow(inner, "verbose", "Detailed logging",
                     "Writes extra detail to the log (windows, popups, knockback). Turn it on when reporting a bug, off otherwise.",
                     DebugLog.Verbose, () => { DebugLog.Verbose = !DebugLog.Verbose; Toggle("Detailed logging", DebugLog.Verbose); },
+                    titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(14));
+                string captured = WorldScriptCapture.Enabled
+                    ? " Saved so far: " + WorldScriptCapture.ScriptsSaved + " scripts, " + WorldScriptCapture.MessagesSaved +
+                      " messages (seen since start: " + WorldScriptCapture.ScriptsSeen + " / " + WorldScriptCapture.MessagesSeen + ")."
+                    : "";
+                ToggleRow(inner, "capture", "Capture world scripts",
+                    "For developers: saves the world scripts the game downloads (quests, quizzes) and the server's messages to them, to BepInEx\\LoveMenu\\captured-scripts. Off after a restart." + captured,
+                    WorldScriptCapture.Enabled, () => { WorldScriptCapture.Enabled = !WorldScriptCapture.Enabled; Toggle("Script capture", WorldScriptCapture.Enabled); },
                     titleStyle: S.BodyStrong);
             });
 

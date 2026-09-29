@@ -38,6 +38,7 @@ namespace FlyMod
         private UpdateChecker _updateChecker;
         private MenuUI _menuUI;
         private WelcomeScreen _welcome;
+        private CollectionLogger _collectionLogger;
         private PluginSettings _pluginSettings;
 
         // Settings are saved every couple of seconds rather than only when the
@@ -127,6 +128,9 @@ namespace FlyMod
             _welcome = new WelcomeScreen(_menuUI.Theme, _keybinds, _overlay, () => _playerContext.PlayerName,
                 () => _playerContext.Avatar != null, () => _menuUI.SetOpen(true));
             _menuUI.OnShowWelcome = _welcome.Show;
+            _collectionLogger = new CollectionLogger(_playerContext, System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu"));
+            _menuUI.Collections = _collectionLogger;
+            WorldScriptCapture.Folder = System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu", "captured-scripts");
             _pluginSettings = new PluginSettings(Config, _keybinds, _hotkeys, _flyController, _speedBoostController,
                 _teleportController, _knockbackImmunityController, _bodyRotationLockController, _cameraController,
                 _crashWorkaroundController, _promoPopupController, _performanceController, _wingsHiderController,
@@ -163,6 +167,12 @@ namespace FlyMod
                 _wingsHiderController.Enabled = !_wingsHiderController.Enabled;
                 Toasts.Show(_wingsHiderController.Enabled ? "Hide wings on" : "Hide wings off");
             });
+            _hotkeys.Register("nextpickup", "Go to next item", KeyCode.None,
+                () => Toasts.Show(_teleportController.GoToNextCollectible()));
+            _hotkeys.Register("questgiver", "Go to quest giver", KeyCode.None,
+                () => Toasts.Show(_teleportController.GoToQuestGiver()));
+            _hotkeys.Register("gotosafe", "Go to safe", KeyCode.None,
+                () => Toasts.Show(_teleportController.GoToSafe()));
             _hotkeys.Register("screenshot", "Screenshot mode", KeyCode.F9,
                 () => _cameraController.SetScreenshotMode(!_cameraController.ScreenshotMode));
         }
@@ -266,6 +276,8 @@ namespace FlyMod
             _uiDebugController.Tick(Time.deltaTime);
             _performanceController.Tick(Time.deltaTime);
             _wingsHiderController.Tick(Time.deltaTime);
+            _collectionLogger.Tick();
+            QuizHelper.Tick();
             _updateChecker.Tick();
         }
 
@@ -282,6 +294,7 @@ namespace FlyMod
             // so the menu window sits on top of it.
             _menuUI.Styles.Rebuild(_menuUI.Theme);
             _overlay.Draw(_menuUI.Styles);
+            QuizHelper.Draw(_menuUI.Styles);
             _menuUI.Draw();
             _welcome.Draw(_menuUI.Styles);
             if (!_menuUI.Open)
