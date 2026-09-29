@@ -26,6 +26,7 @@ namespace FlyMod.UI
         public static Texture2D Close => GetOrBuild("close", BuildClose);
         public static Texture2D Heart => GetOrBuild("heart", BuildHeart);
         public static Texture2D Download => GetOrBuild("download", BuildDownload);
+        public static Texture2D Eye => GetOrBuild("eye", BuildEye);
 
         private static void BuildCamera(IconCanvas c)
         {
@@ -77,6 +78,21 @@ namespace FlyMod.UI
 
         private static float HeartX(float t) => 16f + 0.72f * 16f * Mathf.Pow(Mathf.Sin(t), 3f);
         private static float HeartY(float t) => 16f - 0.72f * (13f * Mathf.Cos(t) - 5f * Mathf.Cos(2f * t) - 2f * Mathf.Cos(3f * t) - Mathf.Cos(4f * t)) + 1f;
+
+        private static void BuildEye(IconCanvas c)
+        {
+            const int segments = 12;
+            for (int segment = 0; segment < segments; segment++)
+            {
+                float x1 = 4f + 24f * segment / segments;
+                float x2 = 4f + 24f * (segment + 1) / segments;
+                float h1 = 8f * Mathf.Sin(Mathf.PI * segment / segments);
+                float h2 = 8f * Mathf.Sin(Mathf.PI * (segment + 1) / segments);
+                c.Line(x1, 16 - h1, x2, 16 - h2);
+                c.Line(x1, 16 + h1, x2, 16 + h2);
+            }
+            c.Circle(16, 16, 4f);
+        }
 
         private static void BuildDownload(IconCanvas c)
         {

@@ -78,6 +78,14 @@ namespace LoveMenuLauncher
             if (HasArgument(args, "--find-game"))
                 return;
 
+            // Crash report without starting the game - for when the whole PC
+            // went down and the menu's own button can't be reached.
+            if (HasArgument(args, "--report"))
+            {
+                ExitWithMessage(CrashReportBuilder.Create(GameDirectory, UnityLogFolder, LogsArchiveFolder));
+                return;
+            }
+
             if (!EnsureBepInExInstalled(args))
             {
                 ExitWithMessage("BepInEx 5 is required. Nothing was changed in the game folder.");
@@ -617,8 +625,67 @@ namespace LoveMenuLauncher
 
         private static void LaunchGameViaSteam()
         {
-            Console.WriteLine("Launching game via Steam...");
-            Process.Start(new ProcessStartInfo("steam://run/" + SteamAppId) { UseShellExecute = true });
+            string arguments = GraphicsLaunchArguments();
+            Console.WriteLine("Launching game via Steam" + (arguments.Length > 0 ? " with " + arguments : "") + "...");
+            // steam://run/<app>//<args>/ passes launch options; Steam may ask
+            // the player to allow them the first time.
+            string url = "steam://run/" + SteamAppId + (arguments.Length > 0 ? "//" + arguments + "/" : "");
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+
+        // The menu's Rendering page saves the chosen graphics API to
+        // BepInEx\LoveMenu\graphics.txt. The plugin writes graphics-ok.txt
+        // once the game has run a minute on it; if the last launch with a
+        // non-default API never did, go back to DirectX 11 so a broken choice
+        // can't lock the player out.
+        private static string GraphicsLaunchArguments()
+        {
+            string folder = Path.Combine(BepInExFolder, "LoveMenu");
+            string settingsPath = Path.Combine(folder, "graphics.txt");
+            string okPath = Path.Combine(folder, "graphics-ok.txt");
+            string lastPath = Path.Combine(folder, "graphics-last.txt");
+            try
+            {
+                if (!File.Exists(settingsPath))
+                    return "";
+                string api = "d3d11", jobs = "default";
+                foreach (string raw in File.ReadAllLines(settingsPath))
+                {
+                    string[] parts = raw.Split(new[] { '=' }, 2);
+                    if (parts.Length != 2)
+                        continue;
+                    if (parts[0].Trim() == "api") api = parts[1].Trim();
+                    else if (parts[0].Trim() == "gfxjobs") jobs = parts[1].Trim();
+                }
+                string arguments = api == "d3d12" ? "-force-d3d12" : api == "vulkan" ? "-force-vulkan" : "";
+                if (arguments.Length > 0 && jobs == "native")
+                    arguments += " -force-gfx-jobs native";
+
+                string last = File.Exists(lastPath) ? File.ReadAllText(lastPath).Trim() : "";
+                bool lastRunFailed = last.Length > 0 && last == arguments && !File.Exists(okPath);
+                if (arguments.Length > 0 && lastRunFailed)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("The game didn't run a full minute last time with " + arguments + ".");
+                    Console.WriteLine("Going back to DirectX 11. You can try again from the menu's Rendering page.");
+                    Console.ResetColor();
+                    File.WriteAllText(settingsPath, "api=d3d11\r\ngfxjobs=default\r\n");
+                    arguments = "";
+                }
+
+                if (File.Exists(okPath))
+                    File.Delete(okPath);
+                if (arguments.Length > 0)
+                    File.WriteAllText(lastPath, arguments);
+                else if (File.Exists(lastPath))
+                    File.Delete(lastPath);
+                return arguments;
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine("Could not read the graphics setting, starting normally: " + exception.Message);
+                return "";
+            }
         }
 
         private static void WaitForGameProcessToStart()

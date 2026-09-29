@@ -132,6 +132,7 @@ namespace FlyMod.Core
         {
             WorldScriptCapture.SaveMessage(scriptEvent);
             FlyMod.Features.QuizHelper.OnScriptEvent(scriptEvent);
+            FlyMod.Features.FortuneTracker.Instance.OnScriptEvent(scriptEvent);
         }
     }
 }

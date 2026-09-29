@@ -14,12 +14,16 @@ client by The Virtual World Web Inc.). Press **F7** in game to open it.
 - **Camera:** field of view, zoom-out limit, screenshot mode that hides the HUD.
 - **Teleports:** find quest items (keys, seashells, letters, flowers) and walk
   through them one by one, go to the safe or the quest NPC, waypoints,
-  teleport to friends and NPCs.
+  teleport to friends and NPCs, notices when friends arrive.
 - **Quests:** quiz helper marks the right answer in green, log of what you
-  collected today.
-- **Performance:** free memory, hide wings, texture quality, FPS/RAM overlay.
-- **Quality of life:** hotkeys for any feature, settings search, update notices,
-  crash diagnostics.
+  collected today, Kiss of Fortune free-opening timer.
+- **Performance:** one-click profiles (Quality, Balanced, Potato), show only
+  your clan or friends in packed rooms, smoother loading when people join,
+  cheaper mirrors, lamp shadows and reflections, DirectX 12 / Vulkan option,
+  built-in FPS benchmark, free memory, hide wings, FPS/RAM overlay.
+- **Stability:** fixes for game load errors, an error log of everything the
+  game reports, one-click crash report zip.
+- **Quality of life:** hotkeys for any feature, settings search, update notices.
 
 The menu only runs when you start the game with the Love Menu exe; starting
 from Steam gives you the normal game. Everything is client-side - see

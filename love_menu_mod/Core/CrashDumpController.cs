@@ -38,8 +38,50 @@ namespace FlyMod.Core
             Directory.CreateDirectory(_dumpFolder);
 
             _lastHeartbeatUtc = DateTime.UtcNow;
+            TrimOldFiles();
             Application.logMessageReceivedThreaded += OnLogMessage;
             _watchdogTimer = new Timer(CheckForHang, null, 1000, 1000);
+        }
+
+        // exceptions.log is appended to forever and hang dumps pile up, so at
+        // startup keep only the newest ~1 MB of the log and the newest dumps.
+        private const long MaxExceptionLogBytes = 2 * 1024 * 1024;
+        private const int KeepExceptionLogBytes = 1024 * 1024;
+        private const int KeepHangDumps = 5;
+
+        private void TrimOldFiles()
+        {
+            try
+            {
+                string log = Path.Combine(_dumpFolder, "exceptions.log");
+                if (File.Exists(log) && new FileInfo(log).Length > MaxExceptionLogBytes)
+                {
+                    byte[] tail;
+                    using (var stream = new FileStream(log, FileMode.Open, FileAccess.Read))
+                    {
+                        stream.Seek(-KeepExceptionLogBytes, SeekOrigin.End);
+                        tail = new byte[KeepExceptionLogBytes];
+                        int read = 0;
+                        while (read < tail.Length)
+                        {
+                            int got = stream.Read(tail, read, tail.Length - read);
+                            if (got <= 0)
+                                break;
+                            read += got;
+                        }
+                    }
+                    File.WriteAllBytes(log, tail);
+                }
+
+                string[] dumps = Directory.GetFiles(_dumpFolder, "hang_*.dmp");
+                Array.Sort(dumps, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                for (int i = KeepHangDumps; i < dumps.Length; i++)
+                    File.Delete(dumps[i]);
+            }
+            catch (Exception exception)
+            {
+                _logger?.LogWarning("Could not tidy the crash dumps folder: " + exception.Message);
+            }
         }
 
         public void Shutdown()

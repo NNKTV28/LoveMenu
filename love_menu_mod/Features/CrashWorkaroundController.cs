@@ -10,9 +10,12 @@ namespace FlyMod.Features
     // yet" message rather than fabricated toggles.
     internal class CrashWorkaround
     {
+        public string Id;               // stable, for performance profiles
         public string Name;
         public string Description;
         public bool Enabled;
+        // Shown on the Rendering page instead of the Crashes page.
+        public bool OnRenderingPage;
         public Action<bool> OnToggle;
     }
 
@@ -29,6 +32,8 @@ namespace FlyMod.Features
     {
         public readonly List<CrashWorkaround> Workarounds = new List<CrashWorkaround>();
         public readonly List<ConfirmedCrashFix> ConfirmedFixes = new List<ConfirmedCrashFix>();
+
+        public CrashWorkaround Find(string id) => Workarounds.Find(w => w.Id == id);
 
         public void SetEnabled(CrashWorkaround workaround, bool enabled)
         {

@@ -18,9 +18,10 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.5.1";
+        public const string Version = "1.6.0";
 
-        private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits }
+        // Saved by number, so new pages go at the end.
+        private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits, Rendering, Fortune }
 
         private static readonly (Section Section, string Title, string Subtitle)[] Pages =
         {
@@ -28,7 +29,9 @@ namespace FlyMod.UI
             (Section.Movement, "Movement", "Fly, speed and staying on your feet."),
             (Section.Camera, "Camera", "Field of view, zoom and clean screenshots."),
             (Section.Teleports, "Teleports", "Find things in the room, save spots, reach friends."),
+            (Section.Fortune, "Fortune", "Kiss of Fortune and the other fortune balls: when your free opening is ready."),
             (Section.Performance, "Performance", "Keep busy rooms smooth."),
+            (Section.Rendering, "Rendering", "Cheaper drawing and smoother loading of people."),
             (Section.Crashes, "Crashes", "What the menu does to keep the game running."),
             (Section.Settings, "Settings", "Keys, look and size of the menu."),
             (Section.Credits, "Credits", "Who made this and where to get help."),
@@ -43,7 +46,13 @@ namespace FlyMod.UI
             ("Find objects (seashells, letters, flowers, keys)", Section.Teleports), ("List object names", Section.Teleports), ("Go to next item", Section.Teleports), ("Go to safe (Key Hunter)", Section.Teleports), ("NPCs / quest givers", Section.Teleports), ("Quest giver (Diego)", Section.Teleports), ("Quiz helper / quiz answers", Section.Teleports), ("Collected today", Section.Teleports), ("Waypoints", Section.Teleports), ("Teleport to a friend", Section.Teleports),
             ("Free memory", Section.Performance), ("Auto-free RAM", Section.Performance), ("Hide player wings", Section.Performance),
             ("Texture resolution", Section.Performance), ("Shadow distance", Section.Performance), ("LOD bias", Section.Performance),
-            ("Crash dumps", Section.Crashes), ("DynamicBones guard", Section.Crashes),
+            ("Performance profile (Quality, Balanced, Potato)", Section.Rendering), ("FPS benchmark", Section.Rendering),
+            ("Friend arrival notices", Section.Teleports), ("Make crash report", Section.Crashes),
+            ("Show people (clan, friends)", Section.Rendering), ("Graphics API (DirectX 12, Vulkan)", Section.Rendering), ("Multithreaded rendering", Section.Rendering),
+            ("Smooth loading", Section.Rendering),("Lamp shadows", Section.Rendering), ("Avatar draw distance", Section.Rendering),
+            ("Mirrors", Section.Rendering), ("Reflections", Section.Rendering), ("Decals", Section.Rendering), ("Sky effects", Section.Rendering),
+            ("Kiss of Fortune / fortune balls", Section.Fortune), ("Free opening timer", Section.Fortune),
+            ("Crash dumps", Section.Crashes), ("DynamicBones settings fix", Section.Crashes), ("Game errors log", Section.Crashes),
             ("Keys and hotkeys", Section.Settings), ("Hide promo popups", Section.Settings), ("Accent color", Section.Settings),
             ("Background opacity", Section.Settings), ("Menu size", Section.Settings), ("Mini overlay", Section.Settings),
             ("Reset all settings", Section.Settings), ("Check for updates", Section.Home), ("Version", Section.Credits),
@@ -328,7 +337,9 @@ namespace FlyMod.UI
             NavItem(Section.Movement, Icons.Movement);
             NavItem(Section.Camera, Icons.Camera);
             NavItem(Section.Teleports, Icons.Teleport);
+            NavItem(Section.Fortune, Icons.Heart);
             NavItem(Section.Performance, Icons.Gauge);
+            NavItem(Section.Rendering, Icons.Eye);
             NavItem(Section.Crashes, Icons.Warning);
             NavItem(Section.Settings, Icons.Settings);
             NavItem(Section.Credits, Icons.Info);
@@ -776,6 +787,8 @@ namespace FlyMod.UI
                 case Section.Camera: DrawCamera(width); break;
                 case Section.Teleports: DrawTeleports(width); break;
                 case Section.Performance: DrawPerformance(width); break;
+                case Section.Rendering: DrawRendering(width); break;
+                case Section.Fortune: DrawFortune(width); break;
                 case Section.Crashes: DrawCrashes(width); break;
                 case Section.Settings: DrawSettings(width); break;
                 case Section.Credits: DrawCredits(width); break;
@@ -803,7 +816,8 @@ namespace FlyMod.UI
             GUILayout.Space(Gap);
             GUILayout.BeginHorizontal();
             QuickToggle(third, "home-quiz", "Quiz helper", QuizHelper.Enabled, QuizHelper.Active ? "On · quiz running" : "On", ToggleQuizHelper);
-            GUILayout.FlexibleSpace();
+            GUILayout.Space(Gap);
+            FortuneHomeCard(third * 2f + Gap);
             GUILayout.EndHorizontal();
             GUILayout.Space(S.S(18));
 
@@ -878,6 +892,29 @@ namespace FlyMod.UI
             BeginCentered(blockHeight, S.S(24));
             if (Widgets.Switch(S, Theme.Accent, id, on))
                 Later(toggle);
+            EndCentered();
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+        }
+
+        // Home: the soonest free fortune-ball opening, same height as a quick toggle.
+        private void FortuneHomeCard(float width)
+        {
+            FortuneTracker.Ball next = FortuneTracker.Instance.Next;
+            float blockHeight = LineHeight(S.CardTitle) + S.S(3) + LineHeight(S.Small);
+            GUILayout.BeginVertical(S.Card, GUILayout.Width(width));
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical();
+            GUILayout.Label(next == null ? "Kiss of Fortune" : next.Name, S.CardTitle);
+            GUILayout.Space(S.S(3));
+            string status = next == null ? "Click a fortune ball once to start its timer"
+                : next.FreeNow ? "Free opening ready" : "Free in " + FortuneTracker.FormatRemaining(next.Remaining);
+            GUILayout.Label(status, new GUIStyle(S.Small) { normal = { textColor = next != null && next.FreeNow ? Theme.SuccessText : Theme.TextSecondary } });
+            GUILayout.EndVertical();
+            GUILayout.FlexibleSpace();
+            BeginCentered(blockHeight, S.Secondary.fixedHeight);
+            if (Button("Open", S.Secondary))
+                Later(() => OpenSection(Section.Fortune));
             EndCentered();
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
@@ -1231,6 +1268,18 @@ namespace FlyMod.UI
                         Later(_teleportController.RefreshNearbyFriends);
                     GUILayout.EndHorizontal();
                     GUILayout.Space(S.S(12));
+                    FriendNotifier notifier = FriendNotifier.Instance;
+                    ToggleRow(inner, "friend-arrive", "Tell me when friends arrive",
+                        "A notice when a friend shows up in your room, and who is here when you arrive.",
+                        notifier.Enabled, () => { notifier.Enabled = !notifier.Enabled; Toggle("Friend notices", notifier.Enabled); },
+                        titleStyle: S.BodyStrong);
+                    if (notifier.Enabled)
+                    {
+                        GUILayout.Space(S.S(10));
+                        ToggleRow(inner, "friend-leave", "Also when they leave", "",
+                            notifier.NotifyLeaving, () => notifier.NotifyLeaving = !notifier.NotifyLeaving, titleStyle: S.BodyStrong);
+                    }
+                    GUILayout.Space(S.S(14));
                     var friends = _teleportController.NearbyFriends;
                     if (friends.Count == 0)
                     {
@@ -1457,6 +1506,206 @@ namespace FlyMod.UI
             });
         }
 
+        // Fortune ---------------------------------------------------------------
+
+        private void DrawFortune(float width)
+        {
+            FortuneTracker fortune = FortuneTracker.Instance;
+            Card(width, inner =>
+            {
+                GUILayout.Label("Fortune balls", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Kiss of Fortune and the other balls have one free opening a day. Click a ball once and its timer shows " +
+                    "here and on Home, and keeps counting after a restart. Opening, prizes and the timer itself stay with the game.",
+                    S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(12));
+                ToggleRow(inner, "fortune-notify", "Tell me when it's free",
+                    "A notice in the corner when a free opening is ready.",
+                    fortune.NotifyWhenFree, () => { fortune.NotifyWhenFree = !fortune.NotifyWhenFree; Toggle("Fortune notice", fortune.NotifyWhenFree); },
+                    titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+
+                if (fortune.Balls.Count == 0)
+                {
+                    EmptyState("No ball seen yet. Click Kiss of Fortune (Love Angeles beach) to open its window once.");
+                    return;
+                }
+                ListRows(fortune.Balls, (ball, index) =>
+                {
+                    string details = (ball.FreeNow ? "Free opening ready" : "Free in " + FortuneTracker.FormatRemaining(ball.Remaining)) +
+                        (ball.Cost > 0 ? " · paid " + ball.Cost + " GLD" : "") +
+                        (ball.LeftToday >= 0 ? " · " + ball.LeftToday + " left today" : "") +
+                        (ball.Scene.Length > 0 ? " · " + ball.Scene : "");
+                    GUILayout.BeginVertical(GUILayout.Width(inner - S.S(170)));
+                    GUILayout.Label(ball.Name, new GUIStyle(S.BodyStrong) { wordWrap = false, clipping = TextClipping.Clip });
+                    GUILayout.Label(details, new GUIStyle(S.Small)
+                    {
+                        wordWrap = false, clipping = TextClipping.Clip,
+                        normal = { textColor = ball.FreeNow ? Theme.SuccessText : Theme.TextSecondary },
+                    });
+                    GUILayout.EndVertical();
+                    GUILayout.FlexibleSpace();
+                    bool here = fortune.InThisRoom(ball);
+                    GUI.enabled = here;
+                    Vector3 target = ball.Position;
+                    if (Button(here ? "Go" : "Not here", S.Go))
+                        _teleportController.GoToNpc(target);
+                    GUI.enabled = true;
+                    GUILayout.Space(S.S(8));
+                    FortuneTracker.Ball forget = ball;
+                    if (Button("×", S.Secondary))
+                        Later(() => fortune.Forget(forget));
+                });
+            });
+        }
+
+        // Rendering -------------------------------------------------------------
+
+        private void DrawRendering(float width)
+        {
+            Columns(width, column => Card(column, inner =>
+            {
+                int matching = PerformanceProfiles.Matching(_crashWorkaroundController, _performanceController);
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Performance profile", S.CardTitle);
+                GUILayout.FlexibleSpace();
+                if (matching < 0)
+                    GUILayout.Label("Custom", S.Small);
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Sets the switches below, Show people and texture resolution in one click.", S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(12));
+                Segmented(PerformanceProfiles.Names, matching, index =>
+                {
+                    PerformanceProfiles.Apply((PerformanceProfiles.Profile)index, _crashWorkaroundController, _performanceController);
+                    Toasts.Show(PerformanceProfiles.Names[index] + " profile");
+                }, inner);
+                GUILayout.Space(S.S(10));
+                GUILayout.Label(matching >= 0 ? PerformanceProfiles.Summaries[matching] : "Your own mix of settings.",
+                    S.Small, GUILayout.Width(inner));
+            }), column => Card(column, inner =>
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.BeginVertical(GUILayout.Width(inner - S.S(130)));
+                GUILayout.Label("FPS benchmark", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Measures " + FpsBenchmark.DurationSeconds.ToString("0") + " s. Stand still in the same spot, run it with a setting off and on, and compare.",
+                    S.Description, GUILayout.Width(inner - S.S(130)));
+                GUILayout.EndVertical();
+                GUILayout.FlexibleSpace();
+                if (FpsBenchmark.Running)
+                {
+                    if (Button("Stop · " + (FpsBenchmark.Progress * 100f).ToString("0") + "%", S.Secondary))
+                        Later(FpsBenchmark.Cancel);
+                }
+                else if (Button("Run benchmark", S.Primary))
+                {
+                    int profile = PerformanceProfiles.Matching(_crashWorkaroundController, _performanceController);
+                    string label = (profile >= 0 ? PerformanceProfiles.Names[profile] : "Custom") + " · " + GraphicsApiSetting.Running +
+                        " · " + PeopleFilter.Names[(int)PeopleFilter.Instance.Current];
+                    Later(() => FpsBenchmark.Start(label));
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(10));
+                if (FpsBenchmark.Results.Count == 0)
+                    GUILayout.Label("No runs yet.", S.Small);
+                foreach (FpsBenchmark.Result result in FpsBenchmark.Results)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(result.When.ToString("HH:mm"), S.Small, GUILayout.Width(S.S(44)));
+                    GUILayout.Label(result.Label, new GUIStyle(S.Small) { wordWrap = false, clipping = TextClipping.Clip }, GUILayout.Width(inner - S.S(190)));
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label(result.AverageFps.ToString("0") + " avg · " + result.OnePercentLowFps.ToString("0") + " low", S.BodyStrong);
+                    GUILayout.EndHorizontal();
+                }
+            }));
+
+            Card(width, inner =>
+            {
+                PeopleFilter people = PeopleFilter.Instance;
+                GUILayout.Label("Show people", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("In a packed room most of the frame goes on drawing other avatars. Only show your clan or your friends: " +
+                    "everyone else, with their pets and name tags, isn't drawn on your screen. They still see you and chat still works.",
+                    S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(12));
+                Segmented(PeopleFilter.Names, (int)people.Current, index =>
+                {
+                    people.Current = (PeopleFilter.Mode)index;
+                    Toasts.Show("Showing " + PeopleFilter.Names[index].ToLowerInvariant());
+                }, inner);
+                GUILayout.Space(S.S(10));
+                string status = people.Current == PeopleFilter.Mode.Everyone
+                    ? "Everyone is shown."
+                    : "Hiding " + people.PeopleHidden + " of " + people.PeopleHere + " people here." +
+                      (people.Current == PeopleFilter.Mode.Clan
+                          ? (people.MyClan.Length > 0 ? " Your clan: " + people.MyClan + "." : " You aren't in a clan, so everyone is hidden.")
+                          : "");
+                GUILayout.Label(status, S.Small, GUILayout.Width(inner));
+            });
+
+            Card(width, inner =>
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Graphics API", S.CardTitle);
+                GUILayout.Space(S.S(8));
+                GUILayout.Label("EXPERIMENTAL", S.BadgeWarning);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Which graphics system the game starts with. The game ships with DirectX 12 and Vulkan built in but uses " +
+                    "DirectX 11. Another one may be faster on your PC, or slower. Applies when you next start the game with the Love Menu " +
+                    "exe (Steam may ask you to allow the launch options). If the game doesn't get going, the launcher goes back to DirectX 11 by itself.",
+                    S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(12));
+                Segmented(GraphicsApiSetting.Names, (int)GraphicsApiSetting.Chosen,
+                    index => GraphicsApiSetting.Choose((GraphicsApiSetting.Api)index, GraphicsApiSetting.NativeGraphicsJobs), inner);
+                if (GraphicsApiSetting.Chosen != GraphicsApiSetting.Api.DirectX11)
+                {
+                    GUILayout.Space(S.S(14));
+                    ToggleRow(inner, "gfxjobs", "Multithreaded rendering",
+                        "Unity's native graphics jobs: spreads drawing across CPU cores. Only with DirectX 12 or Vulkan.",
+                        GraphicsApiSetting.NativeGraphicsJobs,
+                        () => GraphicsApiSetting.Choose(GraphicsApiSetting.Chosen, !GraphicsApiSetting.NativeGraphicsJobs), titleStyle: S.BodyStrong);
+                }
+                GUILayout.Space(S.S(10));
+                GUILayout.Label("Running now: " + GraphicsApiSetting.Running + " (" + GraphicsApiSetting.RunningThreading + ")" +
+                    (GraphicsApiSetting.RestartNeeded ? " · restart the game to apply your choice" : ""), S.Small, GUILayout.Width(inner));
+            });
+
+            Card(width, inner =>
+            {
+                GUILayout.Label("Rendering switches", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Costs the game has no setting for, found in its code. All are off by default and apply straight away.",
+                    S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(12));
+                WorkaroundRows(inner, "rendering-", true);
+            });
+        }
+
+        // The experimental switches for one page, from the shared list.
+        private void WorkaroundRows(float inner, string idPrefix, bool renderingPage)
+        {
+            var workarounds = _crashWorkaroundController.Workarounds;
+            bool first = true;
+            for (int i = 0; i < workarounds.Count; i++)
+            {
+                CrashWorkaround workaround = workarounds[i];
+                if (workaround.OnRenderingPage != renderingPage)
+                    continue;
+                if (!first)
+                    GUILayout.Space(S.S(14));
+                first = false;
+                ToggleRow(inner, idPrefix + i, workaround.Name, workaround.Description + " Turn it off if anything acts up.",
+                    workaround.Enabled, () => _crashWorkaroundController.SetEnabled(workaround, !workaround.Enabled), titleStyle: S.BodyStrong);
+            }
+            if (first)
+                EmptyState("None right now.");
+        }
+
         // Crashes ---------------------------------------------------------------
 
         private void DrawCrashes(float width)
@@ -1498,6 +1747,49 @@ namespace FlyMod.UI
                     "For developers: saves the world scripts the game downloads (quests, quizzes) and the server's messages to them, to BepInEx\\LoveMenu\\captured-scripts. Off after a restart." + captured,
                     WorldScriptCapture.Enabled, () => { WorldScriptCapture.Enabled = !WorldScriptCapture.Enabled; Toggle("Script capture", WorldScriptCapture.Enabled); },
                     titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+                GUILayout.BeginHorizontal();
+                GUILayout.BeginVertical(GUILayout.Width(textWidth));
+                GUILayout.Label("Game errors", S.BodyStrong);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label(ErrorLogger.Total == 0
+                        ? "No errors from the game this session. Any that happen are collected in BepInEx\\LoveMenu\\errors.log."
+                        : ErrorLogger.Total + " errors this session, " + ErrorLogger.Distinct + " different ones. Collected in errors.log, with a count of each in errors-summary.txt.",
+                    S.Description, GUILayout.Width(textWidth));
+                GUILayout.EndVertical();
+                GUILayout.FlexibleSpace();
+                if (Button("Open errors folder", S.Secondary))
+                    ErrorLogger.OpenFolder();
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+                GUILayout.BeginHorizontal();
+                GUILayout.BeginVertical(GUILayout.Width(textWidth));
+                GUILayout.Label("Crash report", S.BodyStrong);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label(BugReport.LastPath == null
+                        ? "Puts the logs, collected errors, crash dumps, your settings and a short PC summary in one zip on your desktop, ready to send. Nothing is uploaded."
+                        : "Saved: " + BugReport.LastPath,
+                    S.Description, GUILayout.Width(textWidth));
+                GUILayout.EndVertical();
+                GUILayout.FlexibleSpace();
+                if (Button("Make crash report", S.Secondary))
+                    Later(() =>
+                    {
+                        try
+                        {
+                            BugReport.Create();
+                            Toasts.Show("Crash report saved to your desktop");
+                        }
+                        catch (Exception exception)
+                        {
+                            Toasts.Show("Could not make the report: " + exception.Message);
+                        }
+                    });
+                GUILayout.EndHorizontal();
             });
 
             Columns(width, column => Card(column, inner =>
@@ -1524,17 +1816,7 @@ namespace FlyMod.UI
             {
                 GUILayout.Label("Experimental workarounds", S.CardTitle);
                 GUILayout.Space(S.S(12));
-                var workarounds = _crashWorkaroundController.Workarounds;
-                if (workarounds.Count == 0)
-                    EmptyState("None right now.");
-                for (int i = 0; i < workarounds.Count; i++)
-                {
-                    CrashWorkaround workaround = workarounds[i];
-                    ToggleRow(inner, "workaround-" + i, workaround.Name, workaround.Description + " Turn it off if anything acts up.",
-                        workaround.Enabled, () => _crashWorkaroundController.SetEnabled(workaround, !workaround.Enabled), titleStyle: S.BodyStrong);
-                    if (i < workarounds.Count - 1)
-                        GUILayout.Space(S.S(14));
-                }
+                WorkaroundRows(inner, "workaround-", false);
             }));
         }
 

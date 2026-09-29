@@ -49,6 +49,9 @@ namespace FlyMod.Settings
         private ConfigEntry<bool> _autoScaleEntry, _hideAvatarInScreenshotsEntry, _autoFreeEntry, _hideWingsEntry;
         private ConfigEntry<bool> _overlayEnabledEntry, _overlayFpsEntry, _overlayRamEntry, _overlayActiveEntry;
         private ConfigEntry<bool> _detailedLoggingEntry, _welcomeSeenEntry, _quizHelperEntry;
+        private ConfigEntry<int> _showPeopleEntry;
+        private ConfigEntry<string> _fortuneBallsEntry;
+        private ConfigEntry<bool> _fortuneNotifyEntry, _friendNoticesEntry, _friendLeftNoticesEntry;
 
         public PluginSettings(ConfigFile configFile, Keybinds keybinds, FeatureHotkeys hotkeys, FlyController flyController,
             SpeedBoostController speedBoostController, TeleportController teleportController,
@@ -117,6 +120,11 @@ namespace FlyMod.Settings
             _crashWorkaroundsEntry = _configFile.Bind("Crashes", "EnabledWorkarounds", "");
             _detailedLoggingEntry = _configFile.Bind("Crashes", "DetailedLogging", false);
             _quizHelperEntry = _configFile.Bind("Teleports", "QuizHelper", true);
+            _showPeopleEntry = _configFile.Bind("Rendering", "ShowPeople", 0);
+            _fortuneBallsEntry = _configFile.Bind("Fortune", "Balls", "");
+            _fortuneNotifyEntry = _configFile.Bind("Fortune", "NotifyWhenFree", true);
+            _friendNoticesEntry = _configFile.Bind("Teleports", "FriendArrivalNotices", true);
+            _friendLeftNoticesEntry = _configFile.Bind("Teleports", "FriendLeftNotices", false);
             _dismissedUpdateEntry = _configFile.Bind("Updates", "DismissedVersion", "");
             RemoveChatSettingsFromOlderVersions();
         }
@@ -174,6 +182,11 @@ namespace FlyMod.Settings
             _menuUI.DismissedUpdateVersion = _dismissedUpdateEntry.Value;
             DebugLog.Verbose = _detailedLoggingEntry.Value;
             QuizHelper.Enabled = _quizHelperEntry.Value;
+            PeopleFilter.Instance.Current = (PeopleFilter.Mode)Mathf.Clamp(_showPeopleEntry.Value, 0, 2);
+            FortuneTracker.Instance.Decode(_fortuneBallsEntry.Value);
+            FortuneTracker.Instance.NotifyWhenFree = _fortuneNotifyEntry.Value;
+            FriendNotifier.Instance.Enabled = _friendNoticesEntry.Value;
+            FriendNotifier.Instance.NotifyLeaving = _friendLeftNoticesEntry.Value;
 
             _teleportController.DecodeWaypoints(_waypointsEntry.Value);
 
@@ -212,7 +225,7 @@ namespace FlyMod.Settings
             _transparencyEntry, _autoScaleEntry, _uiScaleEntry, _themeIndexEntry, _hidePromoPopupsEntry,
             _windowXEntry, _windowYEntry, _sectionEntry, _welcomeSeenEntry,
             _overlayEnabledEntry, _overlayCornerEntry, _overlayFpsEntry, _overlayRamEntry, _overlayActiveEntry,
-            _waypointsEntry, _crashWorkaroundsEntry, _detailedLoggingEntry, _quizHelperEntry, _dismissedUpdateEntry,
+            _waypointsEntry, _crashWorkaroundsEntry, _detailedLoggingEntry, _quizHelperEntry, _showPeopleEntry, _fortuneNotifyEntry, _friendNoticesEntry, _friendLeftNoticesEntry, _dismissedUpdateEntry,
         };
 
         public void Save()
@@ -257,6 +270,15 @@ namespace FlyMod.Settings
             _dismissedUpdateEntry.Value = _menuUI.DismissedUpdateVersion;
             _detailedLoggingEntry.Value = DebugLog.Verbose;
             _quizHelperEntry.Value = QuizHelper.Enabled;
+            _showPeopleEntry.Value = (int)PeopleFilter.Instance.Current;
+            _fortuneNotifyEntry.Value = FortuneTracker.Instance.NotifyWhenFree;
+            _friendNoticesEntry.Value = FriendNotifier.Instance.Enabled;
+            _friendLeftNoticesEntry.Value = FriendNotifier.Instance.NotifyLeaving;
+            if (FortuneTracker.Instance.Changed)
+            {
+                FortuneTracker.Instance.Changed = false;
+                _fortuneBallsEntry.Value = FortuneTracker.Instance.Encode();
+            }
             _waypointsEntry.Value = _teleportController.EncodeWaypoints();
             _knockbackImmunityEnabledEntry.Value = _knockbackImmunityController.Enabled;
             _bodyRotationLockEnabledEntry.Value = _bodyRotationLockController.Enabled;

@@ -34,6 +34,7 @@ namespace FlyMod
         private UiDebugController _uiDebugController;
         private PerformanceController _performanceController;
         private WingsHiderController _wingsHiderController;
+        private readonly RenderTweaks _renderTweaks = new RenderTweaks();
         private MiniOverlay _overlay;
         private UpdateChecker _updateChecker;
         private MenuUI _menuUI;
@@ -63,8 +64,9 @@ namespace FlyMod
             }
 
             DebugLog.Init(Logger);
+            ErrorLogger.Start(System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu"));
+            GraphicsApiSetting.Load(System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu"));
             ConsoleQuickEditGuard.Apply();
-            DynamicBonesCrashGuardPatch.Init(Logger);
             ApplyHarmonyPatches();
             CreateControllers();
         }
@@ -190,10 +192,109 @@ namespace FlyMod
         {
             _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
             {
-                Name = "DynamicBones JSON guard",
-                Description = "Hides the DynamicBones JSON error seen right before two confirmed crashes.",
+                Name = "DynamicBones settings fix",
+                Description = "Some avatars send their hair and cloth physics settings in a nested list the game " +
+                    "rejects (\"Cannot deserialize the current JSON array\"), so they get none. The list is now " +
+                    "flattened first. This error came right before two confirmed crashes.",
                 Enabled = false,
-                OnToggle = enabled => DynamicBonesCrashGuardPatch.Enabled = enabled,
+                OnToggle = enabled => DynamicBonesJsonFixPatch.Enabled = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Name = "Wrong-asset load fix",
+                Description = "Some objects (Scripted_menu_Bulava) failed to load because the game picked their " +
+                    "animator instead of their model from the download. It now falls back to the model.",
+                Enabled = false,
+                OnToggle = enabled => WrongMainAssetFixPatch.Enabled = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Name = "Missing-parent load fix",
+                Description = "Some lights and effects on avatars and pets (Light_Chest, Light_Tail) failed to load " +
+                    "with a NullReferenceException when they arrived before their avatar. They now load using the " +
+                    "game's own fallback, though they may sit slightly off.",
+                Enabled = false,
+                OnToggle = enabled => MissingParentLoadPatch.Enabled = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Id = "smooth-loading",
+                Name = "Smooth loading",
+                Description = "When people arrive, the game spends up to 200 ms per frame building their avatars, " +
+                    "a stutter every time someone joins. It now spends at most " + LoadSmoothing.BudgetMs.ToString("0") +
+                    " ms per frame. People take a little longer to appear.",
+                Enabled = false,
+                OnRenderingPage = true,
+                OnToggle = enabled => LoadSmoothing.Enabled = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Id = "lamp-shadows",
+                Name = "Only the sun casts shadows",
+                Description = "Lamps and spotlights stop casting shadows. Each one that does draws the room six " +
+                    "more times, so indoor rooms with many lamps gain the most.",
+                Enabled = false,
+                OnRenderingPage = true,
+                OnToggle = enabled => { _renderTweaks.LampShadowsOff = enabled; _renderTweaks.ApplyNow(); },
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Id = "avatar-distance",
+                Name = "Avatar draw distance " + RenderTweaks.AvatarDrawDistance.ToString("0") + " m",
+                Description = "Avatars and NPCs further than " + RenderTweaks.AvatarDrawDistance.ToString("0") +
+                    " m from the camera aren't drawn. Helps in crowded hubs. Zooming out further hides your own avatar too.",
+                Enabled = false,
+                OnRenderingPage = true,
+                OnToggle = enabled => { _renderTweaks.AvatarDistance = enabled; _renderTweaks.ApplyNow(); },
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Id = "mirrors",
+                Name = "Cheaper mirrors",
+                Description = "Mirrors redraw the whole room every frame. They now update every other frame, " +
+                    "without shadows in the reflection.",
+                Enabled = false,
+                OnRenderingPage = true,
+                OnToggle = enabled => RenderTweaks.CheaperMirrors = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Id = "probe-refresh",
+                Name = "No reflection refresh hitch",
+                Description = "Some rooms redraw their reflections (six views of the room each) once a minute, " +
+                    "a short stutter. They are now drawn once when the room loads.",
+                Enabled = false,
+                OnRenderingPage = true,
+                OnToggle = enabled => RenderTweaks.NoProbeRefresh = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Id = "decals",
+                Name = "Decals for the main view only",
+                Description = "In rooms with decals, every camera (mirrors, water reflections) redrew the room one " +
+                    "to three extra times for them. Now only your main view does. Decals in reflections may look off.",
+                Enabled = false,
+                OnRenderingPage = true,
+                OnToggle = enabled => DecalsMainCameraOnlyPatch.Enabled = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Id = "sky-effects",
+                Name = "Sky effects off",
+                Description = "Turns off the sky's sun shafts, sky blur and temporal reprojection passes, which run " +
+                    "on top of the game's own post-processing.",
+                Enabled = false,
+                OnRenderingPage = true,
+                OnToggle = enabled => { _renderTweaks.SkyEffectsOff = enabled; _renderTweaks.ApplyNow(); },
             });
 
             _crashWorkaroundController.ConfirmedFixes.Add(new ConfirmedCrashFix
@@ -221,6 +322,8 @@ namespace FlyMod
         private void Update()
         {
             _crashDumpController.Heartbeat();
+            ErrorLogger.Tick();
+            GraphicsApiSetting.Tick();
 
             if (_keybinds.CaptureIfRebinding())
                 return;
@@ -276,6 +379,11 @@ namespace FlyMod
             _uiDebugController.Tick(Time.deltaTime);
             _performanceController.Tick(Time.deltaTime);
             _wingsHiderController.Tick(Time.deltaTime);
+            _renderTweaks.Tick();
+            FpsBenchmark.Tick(Time.unscaledDeltaTime);
+            FriendNotifier.Instance.Tick();
+            PeopleFilter.Instance.Tick();
+            FortuneTracker.Instance.Tick();
             _collectionLogger.Tick();
             QuizHelper.Tick();
             _updateChecker.Tick();
