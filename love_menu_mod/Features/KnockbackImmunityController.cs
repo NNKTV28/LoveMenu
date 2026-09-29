@@ -151,7 +151,10 @@ namespace FlyMod.Features
                 return;
             Vector3 position = transform.position;
             float drift = new Vector3(position.x - _driftWindowStart.x, 0f, position.z - _driftWindowStart.z).magnitude;
-            if (drift > 0.5f)
+            // Only moves that could be a push matter here: flying, walking
+            // and immunity being off are expected movement, not worth a line.
+            bool expectedMovement = _lastSkipReason == "flying" || _lastSkipReason == "off" || _lastSkipReason == "movement input";
+            if (drift > 0.5f && !expectedMovement)
                 DebugLog.Info("Knockback immunity: moved " + drift.ToString("0.00") + " units in 0.25s (state: " +
                     (_lastSkipReason.Length == 0 ? "holding" : _lastSkipReason) + ", velocity " +
                     _rigidbody.linearVelocity.magnitude.ToString("0.00") + ", rigidbody at " + _rigidbody.position + ", transform at " + position + ")");

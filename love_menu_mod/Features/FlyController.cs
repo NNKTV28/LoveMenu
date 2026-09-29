@@ -124,7 +124,9 @@ namespace FlyMod.Features
         private void CancelAmbientFallingVelocity()
         {
             Reflect.ZeroVerticalVelocity();
-            if (_avatarRigidbody != null)
+            // The game sometimes makes the avatar kinematic; Unity ignores a
+            // velocity write then and logs a warning for every frame of it.
+            if (_avatarRigidbody != null && !_avatarRigidbody.isKinematic)
                 _avatarRigidbody.linearVelocity = Vector3.zero;
         }
 
