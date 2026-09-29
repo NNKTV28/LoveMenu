@@ -183,8 +183,10 @@ namespace FlyMod.UI
                 skin.verticalScrollbarThumb = previousThumb;
             }
 
-            _windowRect.x = Mathf.Clamp(_windowRect.x, S.S(200) - _windowRect.width, Screen.width - S.S(200));
-            _windowRect.y = Mathf.Clamp(_windowRect.y, 0f, Screen.height - S.S(74));
+            // Always leave part of the header on screen - the whole header is
+            // the drag handle, so the window can always be pulled back.
+            _windowRect.x = Mathf.Clamp(_windowRect.x, -(SidebarWidth - S.S(40)), Screen.width - S.S(300));
+            _windowRect.y = Mathf.Clamp(_windowRect.y, 0f, Screen.height - HeaderHeight);
             IsMouseOverOpenMenu = _windowRect.Contains(Event.current.mousePosition);
 
             if (_deferred.Count > 0)
@@ -233,9 +235,9 @@ namespace FlyMod.UI
             DrawSearchResults();
             Toasts.Draw(S, new Rect(0, 0, width, height));
 
-            // Dragging by the title area of the header; search and close
-            // sit to the right of it and keep their own clicks.
-            GUI.DragWindow(new Rect(mainX, 0, mainWidth - S.S(320), HeaderHeight));
+            // The whole header, logo included, drags the window. Search and
+            // close were drawn first, so they still get their own clicks.
+            GUI.DragWindow(new Rect(0, 0, width, HeaderHeight));
         }
 
         private void FillRect(Rect rect, Color color)

@@ -1,4 +1,5 @@
 using UnityEngine;
+using VWW.Clients.Curio.Scene.Links;
 using FlyMod.Core;
 
 namespace FlyMod.Features
@@ -19,7 +20,6 @@ namespace FlyMod.Features
 
         private bool? _wasInWaterBeforeFlying;
         private Rigidbody _avatarRigidbody;
-        private bool? _wasGravityEnabledBeforeFlying;
         private Vector3 _desiredPosition;
 
         public FlyController(PlayerContext playerContext)
@@ -55,10 +55,7 @@ namespace FlyMod.Features
             Reflect.InWaterField.SetValue(_playerContext.Avatar, true);
 
             if (_avatarRigidbody != null)
-            {
-                _wasGravityEnabledBeforeFlying = _avatarRigidbody.useGravity;
                 _avatarRigidbody.useGravity = false;
-            }
         }
 
         private void ExitFlightState()
@@ -69,9 +66,15 @@ namespace FlyMod.Features
                 Reflect.InWaterField.SetValue(_playerContext.Avatar, _wasInWaterBeforeFlying.Value);
             _wasInWaterBeforeFlying = null;
 
-            if (_avatarRigidbody != null && _wasGravityEnabledBeforeFlying.HasValue)
-                _avatarRigidbody.useGravity = _wasGravityEnabledBeforeFlying.Value;
-            _wasGravityEnabledBeforeFlying = null;
+            // The game owns gravity: it turns it on whenever the avatar is
+            // off the ground and out of water (DOMAnimLink.UpdateGravity).
+            // Restoring the value from take-off (off, since the avatar was
+            // standing then) left it floating with no gravity after landing,
+            // stuck in the falling state. Let the game work it out again.
+            if (DOMAnimLink.Self != null)
+                DOMAnimLink.Self.UpdateGravity();
+            else if (_avatarRigidbody != null)
+                _avatarRigidbody.useGravity = true;
 
             bool inWaterAfterRestore = (bool)Reflect.InWaterField.GetValue(_playerContext.Avatar);
             DebugLog.Info("Fly off: m_InWater after restore = " + inWaterAfterRestore +
