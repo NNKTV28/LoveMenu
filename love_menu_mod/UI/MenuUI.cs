@@ -18,7 +18,7 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.3.0";
+        public const string Version = "1.3.1";
 
         private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits }
 
