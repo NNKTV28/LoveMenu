@@ -4,8 +4,11 @@ using System.Globalization;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
+using VWW.Clients.Curio;
 using VWW.Clients.Curio.Avatar;
 using VWW.Clients.Curio.ClientUI;
+using VWW.Clients.Curio.Scene.Links;
+using VWW.CoreLibs.Shared;
 using FlyMod.Core;
 
 namespace FlyMod.Features
@@ -17,11 +20,11 @@ namespace FlyMod.Features
     }
 
     // Waypoints are fully self-contained (your own saved spots, nothing to
-    // do with anyone else). Friend teleport matches names from your open
-    // Friends list against nametags of avatars actually visible in the
-    // current scene - only works for friends already in the same room, and
-    // only ever surfaces friends (not arbitrary players), matching the
-    // game's own friends-only boundary rather than extending past it.
+    // do with anyone else). Friend teleport takes your friends from the
+    // game's social service and finds their avatars in the current room by
+    // persona ID - only friends already in the same room, and only ever
+    // friends (not arbitrary players), matching the game's own
+    // friends-only boundary rather than extending past it.
     internal class TeleportController
     {
         private readonly PlayerContext _playerContext;
@@ -30,10 +33,6 @@ namespace FlyMod.Features
         public readonly List<(string Name, Vector3 Position)> NearbyFriends = new List<(string, Vector3)>();
         public string FriendSearchStatus = "";
 
-        private static readonly FieldInfo FriendNameTextField =
-            typeof(FriendItemBehaviour).GetField("m_NameText", BindingFlags.NonPublic | BindingFlags.Instance);
-        private static readonly FieldInfo NametagParentGameObjectField =
-            typeof(DOMTitleText).GetField("<ParentGameObject>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance);
 
         public TeleportController(PlayerContext playerContext)
         {
@@ -144,44 +143,64 @@ namespace FlyMod.Features
         {
             NearbyFriends.Clear();
 
-            HashSet<string> friendNames = CollectOpenFriendsListNames();
-            if (friendNames.Count == 0)
+            Dictionary<Guid, string> friends = FriendsById();
+            if (friends.Count == 0)
             {
-                FriendSearchStatus = "No friends found - open the Friends panel once first.";
+                FriendSearchStatus = "Your friends list hasn't loaded yet. Try again in a moment.";
                 return;
             }
 
-            CollectVisibleFriendsInScene(friendNames);
+            CollectFriendsInThisRoom(friends);
             FriendSearchStatus = NearbyFriends.Count == 0
-                ? "No friends visible in this room right now."
-                : NearbyFriends.Count + " friend(s) found here.";
+                ? "None of your friends are in this room right now."
+                : NearbyFriends.Count + " friend(s) here.";
         }
 
-        private static HashSet<string> CollectOpenFriendsListNames()
+        // The same list the game's Friends panel shows, straight from the
+        // social service, so the panel doesn't have to be open.
+        private static Dictionary<Guid, string> FriendsById()
         {
-            var friendNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (FriendItemBehaviour friendListItem in UnityEngine.Object.FindObjectsOfType<FriendItemBehaviour>())
-                if (FriendNameTextField?.GetValue(friendListItem) is Text nameText && !string.IsNullOrWhiteSpace(nameText.text))
-                    friendNames.Add(nameText.text.Trim());
-            return friendNames;
-        }
-
-        private void CollectVisibleFriendsInScene(HashSet<string> friendNames)
-        {
-            var alreadyAdded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (DOMTitleText nametag in UnityEngine.Object.FindObjectsOfType<DOMTitleText>())
+            var friends = new Dictionary<Guid, string>();
+            try
             {
-                if (!(NametagParentGameObjectField?.GetValue(nametag) is GameObject avatarGameObject) || avatarGameObject == null)
-                    continue;
-
-                string avatarName = avatarGameObject.transform.root.name;
-                bool isKnownFriend = !string.IsNullOrEmpty(avatarName) && friendNames.Contains(avatarName);
-                bool isSelf = avatarName == _playerContext.PlayerName;
-                if (!isKnownFriend || isSelf || !alreadyAdded.Add(avatarName))
-                    continue;
-
-                NearbyFriends.Add((avatarName, avatarGameObject.transform.root.position));
+                var social = Singleton<ClientAPI>.Current?.SocialManager;
+                if (social == null)
+                    return friends;
+                foreach (var friend in social.Friends)
+                    if (friend.Value != null && !string.IsNullOrEmpty(friend.Value.Name))
+                        friends[friend.Key] = friend.Value.Name;
             }
+            catch (Exception exception)
+            {
+                DebugLog.Warn("Could not read the friends list: " + exception.Message);
+            }
+            return friends;
+        }
+
+        // Every avatar in the room is a DOMControllerLink whose document
+        // belongs to its owner's persona - the same check the game uses to
+        // spot the player's own avatar (DOMControllerLink.IsPlayerAvatar).
+        private void CollectFriendsInThisRoom(Dictionary<Guid, string> friends)
+        {
+            var alreadyAdded = new HashSet<Guid>();
+            foreach (DOMControllerLink avatar in UnityEngine.Object.FindObjectsOfType<DOMControllerLink>())
+            {
+                if (avatar == null || avatar.IsPlayerAvatar)
+                    continue;
+                Guid ownerId;
+                try
+                {
+                    ownerId = avatar.LinkedObject.Document.ContextID;
+                }
+                catch
+                {
+                    continue;
+                }
+                if (!friends.TryGetValue(ownerId, out string name) || !alreadyAdded.Add(ownerId))
+                    continue;
+                NearbyFriends.Add((name, avatar.transform.position));
+            }
+            NearbyFriends.Sort((a, b) => DistanceFromPlayer(a.Position).CompareTo(DistanceFromPlayer(b.Position)));
         }
 
         public string EncodeWaypoints()

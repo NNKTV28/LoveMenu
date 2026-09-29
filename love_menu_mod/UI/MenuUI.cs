@@ -333,12 +333,21 @@ namespace FlyMod.UI
         {
             bool active = _section == section;
             if (GUILayout.Button(TitleOf(section), active ? S.NavItemActive : S.NavItem, GUILayout.ExpandWidth(true)))
-                Later(() => { _section = section; _searchQuery = ""; });
+                Later(() => OpenSection(section));
             Rect row = GUILayoutUtility.GetLastRect();
             float iconSize = S.S(18);
             Widgets.DrawIcon(new Rect(row.x + S.S(14), row.center.y - iconSize / 2f, iconSize, iconSize), icon,
                 active ? Theme.TextStrong : Theme.TextSecondary);
             GUILayout.Space(S.S(2));
+        }
+
+        private void OpenSection(Section section)
+        {
+            _section = section;
+            _searchQuery = "";
+            // Friends come and go; show who is here now rather than a stale list.
+            if (section == Section.Teleports)
+                _teleportController.RefreshNearbyFriends();
         }
 
         private static string TitleOf(Section section)
@@ -433,7 +442,7 @@ namespace FlyMod.UI
                 if (!result.Rect.Contains(e.mousePosition))
                     continue;
                 Section target = result.Section;
-                Later(() => { _section = target; _searchQuery = ""; GUIUtility.keyboardControl = 0; });
+                Later(() => { OpenSection(target); GUIUtility.keyboardControl = 0; });
                 e.Use();
                 return;
             }
