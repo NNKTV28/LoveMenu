@@ -75,10 +75,24 @@ namespace FlyMod.Features
             {
                 if (character == null || character.IsPlayerAvatar || character.IsPersona)
                     continue;
-                NearbyNpcs.Add((NpcName(character), character.transform.position));
+                string name = NpcName(character);
+                if (!IsProp(name))
+                    NearbyNpcs.Add((name, character.transform.position));
             }
             NearbyNpcs.Sort((a, b) => DistanceFromPlayer(a.Position).CompareTo(DistanceFromPlayer(b.Position)));
             NpcSearchStatus = NearbyNpcs.Count == 0 ? "No NPCs in this room." : NearbyNpcs.Count + " NPC(s) here, nearest first.";
+        }
+
+        // Rideable and usable props are controlled objects too
+        // ("Vehicle_Horse01-02_Brown", "Treadmill_01_AnimParts", "Tool_Skate_model_3").
+        private static readonly string[] PropPrefixes = { "Vehicle_", "Tool_", "Treadmill" };
+
+        private static bool IsProp(string name)
+        {
+            foreach (string prefix in PropPrefixes)
+                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return name.IndexOf("AnimParts", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         public void GoToNpc(Vector3 npcPosition) => GoToPosition(npcPosition + Vector3.back * 1.5f);

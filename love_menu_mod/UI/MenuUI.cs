@@ -18,7 +18,7 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.5.0";
+        public const string Version = "1.5.1";
 
         private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits }
 
@@ -531,11 +531,32 @@ namespace FlyMod.UI
             {
                 var row = new Rect(box.x + padding, box.y + padding + i * rowHeight, box.width - padding * 2f, rowHeight);
                 bool hover = row.Contains(Event.current.mousePosition);
+                // Long labels are cut short so they never run under the page name.
+                string where = TitleOf(results[i].Section);
+                float whereWidth = whereStyle.CalcSize(new GUIContent(where)).x + S.S(16);
                 if (Event.current.type == EventType.Repaint)
-                    S.DropdownRow.Draw(row, new GUIContent(results[i].Label), hover, false, false, false);
-                GUI.Label(new Rect(row.x, row.y, row.width - S.S(10), row.height), TitleOf(results[i].Section), whereStyle);
+                {
+                    S.DropdownRow.Draw(row, GUIContent.none, hover, false, false, false);
+                    var labelStyle = new GUIStyle(S.DropdownRow) { wordWrap = false };
+                    labelStyle.normal.background = labelStyle.hover.background = null;
+                    labelStyle.Draw(new Rect(row.x, row.y, row.width - whereWidth, row.height),
+                        new GUIContent(Ellipsize(results[i].Label, labelStyle, row.width - whereWidth - labelStyle.padding.horizontal)),
+                        hover, false, false, false);
+                }
+                GUI.Label(new Rect(row.x, row.y, row.width - S.S(10), row.height), where, whereStyle);
                 _searchResultRects.Add((row, results[i].Section));
             }
+        }
+
+        // "Find objects (seashells, letters, flowers, keys)" -> "Find objects (seashells, lett…"
+        private static string Ellipsize(string text, GUIStyle style, float width)
+        {
+            if (style.CalcSize(new GUIContent(text)).x <= width)
+                return text;
+            int length = text.Length;
+            while (length > 1 && style.CalcSize(new GUIContent(text.Substring(0, length).TrimEnd() + "…")).x > width)
+                length--;
+            return text.Substring(0, length).TrimEnd() + "…";
         }
 
         // --- layout helpers --------------------------------------------------
@@ -1300,7 +1321,7 @@ namespace FlyMod.UI
             GUILayout.BeginVertical(GUILayout.Width(inner - S.S(100)));
             GUILayout.Label("Collected today", S.CardTitle);
             GUILayout.Space(S.S(3));
-            GUILayout.Label("Anything you pick up is logged here and in collected.log.", S.Description, GUILayout.Width(inner - S.S(100)));
+            GUILayout.Label("Quest items you pick up (shells, letters, keys, flowers) are counted here and in collected.log.", S.Description, GUILayout.Width(inner - S.S(100)));
             GUILayout.EndVertical();
             GUILayout.FlexibleSpace();
             if (Button("Open log", S.Secondary))
@@ -1314,11 +1335,24 @@ namespace FlyMod.UI
                 return;
             }
 
+            // Chips wrap onto new rows instead of widening the card.
+            float rowWidth = 0f;
             GUILayout.BeginHorizontal();
             foreach (var type in Collections.TodayCounts)
             {
-                GUILayout.Label(type.Value + " " + type.Key, S.ChipActive);
+                string chip = type.Value + " " + type.Key;
+                float chipWidth = S.ChipActive.CalcSize(new GUIContent(chip)).x + S.S(6);
+                if (rowWidth > 0f && rowWidth + chipWidth > inner)
+                {
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(6));
+                    GUILayout.BeginHorizontal();
+                    rowWidth = 0f;
+                }
+                GUILayout.Label(chip, S.ChipActive);
                 GUILayout.Space(S.S(6));
+                rowWidth += chipWidth;
             }
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();

@@ -154,6 +154,22 @@ namespace FlyMod.Features
                     Record(name);
         }
 
+        // Quest pickups known so far. Other things near you also disappear
+        // (other players' pets, interactive zones, props that respawn); those
+        // only go to collected.log as "Other", to help name new quest items,
+        // and are left out of the counts and notices.
+        private static readonly string[] KnownItems = { "Shell", "Letter", "Key", "GiftboxAura", "Flower" };
+
+        public static bool IsKnownItem(string name)
+        {
+            foreach (string known in KnownItems)
+                if (name.IndexOf(known, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            return false;
+        }
+
+        private const string OtherType = "Other";
+
         // "Shell_Pink (2)" -> "Shell", "Key_Blue3" -> "Key", "BottleBar4g" -> "BottleBar"
         public static string TypeOf(string name)
         {
@@ -170,12 +186,17 @@ namespace FlyMod.Features
         {
             RollOverIfNewDay();
             DateTime now = DateTime.Now;
-            string type = TypeOf(name);
-            TodayCounts.TryGetValue(type, out int count);
-            TodayCounts[type] = count + 1;
-            Recent.Insert(0, new Entry { When = now, Name = name, Type = type });
-            if (Recent.Count > 20)
-                Recent.RemoveAt(Recent.Count - 1);
+            bool known = IsKnownItem(name);
+            string type = known ? TypeOf(name) : OtherType;
+            int count = 0;
+            if (known)
+            {
+                TodayCounts.TryGetValue(type, out count);
+                TodayCounts[type] = count + 1;
+                Recent.Insert(0, new Entry { When = now, Name = name, Type = type });
+                if (Recent.Count > 20)
+                    Recent.RemoveAt(Recent.Count - 1);
+            }
 
             try
             {
@@ -188,6 +209,11 @@ namespace FlyMod.Features
                 DebugLog.Warn("Could not write the collection log: " + exception.Message);
             }
 
+            if (!known)
+            {
+                DebugLog.Detail("Vanished near you (not a known pickup): " + name);
+                return;
+            }
             DebugLog.Info("Collected " + name);
             FlyMod.UI.Toasts.Show("Collected " + name + " - " + (count + 1) + " " + type + " today");
         }
@@ -212,7 +238,8 @@ namespace FlyMod.Features
                 foreach (string line in File.ReadAllLines(LogPath))
                 {
                     string[] parts = line.Split('\t');
-                    if (parts.Length < 3 || !parts[0].StartsWith(today))
+                    // Lines from before 1.5.1 have no "Other" type, so check the name too.
+                    if (parts.Length < 3 || !parts[0].StartsWith(today) || parts[1] == OtherType || !IsKnownItem(parts[2]))
                         continue;
                     TodayCounts.TryGetValue(parts[1], out int count);
                     TodayCounts[parts[1]] = count + 1;

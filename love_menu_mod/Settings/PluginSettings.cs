@@ -48,7 +48,7 @@ namespace FlyMod.Settings
         private ConfigEntry<bool> _knockbackImmunityEnabledEntry, _bodyRotationLockEnabledEntry, _hidePromoPopupsEntry;
         private ConfigEntry<bool> _autoScaleEntry, _hideAvatarInScreenshotsEntry, _autoFreeEntry, _hideWingsEntry;
         private ConfigEntry<bool> _overlayEnabledEntry, _overlayFpsEntry, _overlayRamEntry, _overlayActiveEntry;
-        private ConfigEntry<bool> _detailedLoggingEntry, _welcomeSeenEntry;
+        private ConfigEntry<bool> _detailedLoggingEntry, _welcomeSeenEntry, _quizHelperEntry;
 
         public PluginSettings(ConfigFile configFile, Keybinds keybinds, FeatureHotkeys hotkeys, FlyController flyController,
             SpeedBoostController speedBoostController, TeleportController teleportController,
@@ -116,6 +116,7 @@ namespace FlyMod.Settings
             _waypointsEntry = _configFile.Bind("Teleports", "Waypoints", "");
             _crashWorkaroundsEntry = _configFile.Bind("Crashes", "EnabledWorkarounds", "");
             _detailedLoggingEntry = _configFile.Bind("Crashes", "DetailedLogging", false);
+            _quizHelperEntry = _configFile.Bind("Teleports", "QuizHelper", true);
             _dismissedUpdateEntry = _configFile.Bind("Updates", "DismissedVersion", "");
             RemoveChatSettingsFromOlderVersions();
         }
@@ -172,6 +173,7 @@ namespace FlyMod.Settings
             _overlay.ShowActiveFeatures = _overlayActiveEntry.Value;
             _menuUI.DismissedUpdateVersion = _dismissedUpdateEntry.Value;
             DebugLog.Verbose = _detailedLoggingEntry.Value;
+            QuizHelper.Enabled = _quizHelperEntry.Value;
 
             _teleportController.DecodeWaypoints(_waypointsEntry.Value);
 
@@ -210,7 +212,7 @@ namespace FlyMod.Settings
             _transparencyEntry, _autoScaleEntry, _uiScaleEntry, _themeIndexEntry, _hidePromoPopupsEntry,
             _windowXEntry, _windowYEntry, _sectionEntry, _welcomeSeenEntry,
             _overlayEnabledEntry, _overlayCornerEntry, _overlayFpsEntry, _overlayRamEntry, _overlayActiveEntry,
-            _waypointsEntry, _crashWorkaroundsEntry, _detailedLoggingEntry, _dismissedUpdateEntry,
+            _waypointsEntry, _crashWorkaroundsEntry, _detailedLoggingEntry, _quizHelperEntry, _dismissedUpdateEntry,
         };
 
         public void Save()
@@ -254,6 +256,7 @@ namespace FlyMod.Settings
             _overlayActiveEntry.Value = _overlay.ShowActiveFeatures;
             _dismissedUpdateEntry.Value = _menuUI.DismissedUpdateVersion;
             _detailedLoggingEntry.Value = DebugLog.Verbose;
+            _quizHelperEntry.Value = QuizHelper.Enabled;
             _waypointsEntry.Value = _teleportController.EncodeWaypoints();
             _knockbackImmunityEnabledEntry.Value = _knockbackImmunityController.Enabled;
             _bodyRotationLockEnabledEntry.Value = _bodyRotationLockController.Enabled;
