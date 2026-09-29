@@ -7,6 +7,8 @@ using VWW.Clients.Curio.ClientJS;
 using VWW.Clients.Curio.ClientUI.Elements;
 using VWW.CoreLibs.Shared;
 
+using FlyMod.Core;
+
 namespace FlyMod.Features
 {
     // Diagnostics for two open questions:
@@ -69,12 +71,12 @@ namespace FlyMod.Features
                 {
                     if (window == null || !_seenWindows.Add(window))
                         continue;
-                    _log.LogInfo("[window] name=" + window.Name + " go=" + window.gameObject.name +
+                    DebugLog.Detail("[window] name=" + window.Name + " go=" + window.gameObject.name +
                         " visible=" + window.Visible + " layer=" + window.LayerName + " isHUD=" + window.IsHUD);
 
                     string windowName = window.Name;
-                    window.OnShow += (sender, args) => _log.LogInfo("[window] OnShow " + windowName);
-                    window.OnHide += (sender, args) => _log.LogInfo("[window] OnHide " + windowName +
+                    window.OnShow += (sender, args) => DebugLog.Detail("[window] OnShow " + windowName);
+                    window.OnHide += (sender, args) => DebugLog.Detail("[window] OnHide " + windowName +
                         " | InputDisabled=" + (Singleton<KeybindManager>.Current?.InputDisabled ?? false));
                 }
                 catch (Exception exception)
@@ -109,7 +111,7 @@ namespace FlyMod.Features
             _lastMovementDisabled = MovementDisabled;
             _lastInputDisabled = InputDisabled;
             _lastCameraType = CameraType;
-            _log.LogInfo("[movement state] DisableAvatarMovement=" + MovementDisabled +
+            DebugLog.Detail("[movement state] DisableAvatarMovement=" + MovementDisabled +
                 " InputDisabled=" + InputDisabled + " CameraType=" + CameraType);
         }
 
@@ -123,10 +125,10 @@ namespace FlyMod.Features
                         continue;
 
                     string label = DescribeWebView(webView);
-                    _log.LogInfo("[popup] found webview: " + label);
+                    DebugLog.Detail("[popup] found webview: " + label);
 
                     webView.OnCloseRequested += (sender, args) =>
-                        _log.LogInfo("[popup] OnCloseRequested fired for " + label +
+                        DebugLog.Detail("[popup] OnCloseRequested fired for " + label +
                             " | DisableAvatarMovement=" + CamControl.DisableAvatarMovement +
                             " InputDisabled=" + (Singleton<KeybindManager>.Current?.InputDisabled ?? false));
 
@@ -135,11 +137,11 @@ namespace FlyMod.Features
                         continue;
 
                     window.OnHide += (sender, args) =>
-                        _log.LogInfo("[popup] Window.OnHide fired for " + label +
+                        DebugLog.Detail("[popup] Window.OnHide fired for " + label +
                             " | DisableAvatarMovement=" + CamControl.DisableAvatarMovement +
                             " InputDisabled=" + (Singleton<KeybindManager>.Current?.InputDisabled ?? false));
                     window.OnShow += (sender, args) =>
-                        _log.LogInfo("[popup] Window.OnShow fired for " + label);
+                        DebugLog.Detail("[popup] Window.OnShow fired for " + label);
                 }
                 catch (Exception exception)
                 {

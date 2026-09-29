@@ -18,6 +18,26 @@ namespace FlyMod.Core
         private float _nextNameAttemptTime;
         public bool TypingInChat { get; private set; }
 
+        // Moves the avatar and its physics body together. Writing only
+        // transform.position left the Rigidbody (and its collider) behind
+        // until the next physics step - with interpolation on, sometimes for
+        // good - so after flying or a teleport the body you saw and the body
+        // that collides were in different places: walking through things,
+        // sitting next to a chair instead of on it.
+        public void MoveAvatarTo(Vector3 position)
+        {
+            if (Avatar == null)
+                return;
+            Avatar.transform.position = position;
+            Physics.SyncTransforms();
+        }
+
+        public void MoveAvatarBy(Vector3 offset)
+        {
+            if (Avatar != null)
+                MoveAvatarTo(Avatar.transform.position + offset);
+        }
+
         public void UpdateForThisFrame()
         {
             ResolveAvatarIfNeeded();

@@ -5,6 +5,8 @@ using VWW.Clients.Curio.ClientJS;
 using VWW.Clients.Curio.ClientUI.Elements;
 using VWW.CoreLibs.Shared;
 
+using FlyMod.Core;
+
 namespace FlyMod.Features
 {
     // Hides the promotional popups the game shows right after login.
@@ -84,7 +86,7 @@ namespace FlyMod.Features
                 if (keybindManager == null || !keybindManager.InputDisabled)
                     return;
                 keybindManager.EnableInput();
-                _log.LogInfo("[popup] re-enabled input left disabled by a hidden promo popup");
+                DebugLog.Detail("[popup] re-enabled input left disabled by a hidden promo popup");
             }
             catch (Exception exception)
             {
@@ -103,7 +105,7 @@ namespace FlyMod.Features
 
                     window.Visible = false;
                     _hidAPromoWindow = true;
-                    _log.LogInfo("[popup] hid promo window: " + window.Name +
+                    DebugLog.Detail("[popup] hid promo window: " + window.Name +
                         " | InputDisabled=" + (Singleton<KeybindManager>.Current?.InputDisabled ?? false));
                 }
                 catch

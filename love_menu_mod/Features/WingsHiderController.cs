@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using BepInEx.Logging;
 using UnityEngine;
 
+using FlyMod.Core;
+
 namespace FlyMod.Features
 {
     // Hides avatar wing attachments, which are some of the heaviest things
@@ -73,7 +75,7 @@ namespace FlyMod.Features
                 // what's actually being matched (or missed) is visible
                 // instead of guessed at from screenshots.
                 if (_loggedNames.Add(renderer.gameObject.name))
-                    _log.LogInfo("[wings] hiding '" + renderer.gameObject.name + "' (" + renderer.GetType().Name +
+                    DebugLog.Detail("[wings] hiding '" + renderer.gameObject.name + "' (" + renderer.GetType().Name +
                         ", parent '" + (renderer.transform.parent != null ? renderer.transform.parent.name : "none") + "')");
 
                 renderer.enabled = false;
@@ -99,10 +101,10 @@ namespace FlyMod.Features
                     continue;
                 string name = renderer.gameObject.name;
                 string parentName = renderer.transform.parent != null ? renderer.transform.parent.name : "none";
-                _log.LogInfo("[wings] candidate skinned renderer: '" + name + "' parent='" + parentName + "'");
+                DebugLog.Detail("[wings] candidate skinned renderer: '" + name + "' parent='" + parentName + "'");
                 logged++;
             }
-            _log.LogInfo("[wings] no wing match found - logged " + logged + " skinned renderer names above");
+            DebugLog.Detail("[wings] no wing match found - logged " + logged + " skinned renderer names above");
         }
 
         private void RestoreHiddenRenderers()

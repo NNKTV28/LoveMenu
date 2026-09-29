@@ -132,8 +132,13 @@ namespace FlyMod.Features
             WriteTextureLimit(_originalTextureLimit);
             QualitySettings.shadowDistance = _originalShadowDistance;
             QualitySettings.lodBias = _originalLodBias;
+            _capturedOriginals = false;
             _log.LogInfo("[performance] restored the game's original quality settings");
         }
+
+        // Only graphics the player actually changed are saved and put back
+        // next session; untouched ones stay whatever the game chooses.
+        public bool GraphicsChangedByPlayer => _capturedOriginals;
 
         private void CaptureOriginalsOnce()
         {

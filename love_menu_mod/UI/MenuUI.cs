@@ -18,7 +18,7 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.3.2";
+        public const string Version = "1.4.0";
 
         private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits }
 
@@ -53,7 +53,15 @@ namespace FlyMod.UI
         private static readonly string[] QuickSearchTerms = { "key", "letter", "potion", "pet" };
 
         public bool Open { get; private set; }
-        public static bool IsMouseOverOpenMenu { get; private set; }
+        // Read by the game-input patches: while true, the game ignores the
+        // mouse wheel and treats clicks as clicks on its own UI.
+        public static bool IsMouseOverOpenMenu => _mouseOverWindow || WelcomeBlocksMouse;
+        private static bool _mouseOverWindow;
+        public static bool WelcomeBlocksMouse;
+
+        // Read by MenuTypingBlockPatch so the game stops reading movement
+        // keys while a menu text box has focus.
+        public static bool TypingInMenu { get; private set; }
         public Rect WindowRect => _windowRect;
 
         public readonly Theme Theme = new Theme();
@@ -79,6 +87,7 @@ namespace FlyMod.UI
         private readonly string _crashDumpFolder;
         private readonly Action _onMenuClosed;
         private readonly Action _onResetAllSettings;
+        public Action OnShowWelcome;
 
         private MenuStyles S => Styles;
         private Section _section = Section.Home;
@@ -134,6 +143,8 @@ namespace FlyMod.UI
             if (!open)
             {
                 _searchQuery = "";
+                GUIUtility.keyboardControl = 0;
+                TypingInMenu = false;
                 _onMenuClosed?.Invoke();
             }
         }
@@ -143,7 +154,29 @@ namespace FlyMod.UI
         // True while one of the menu's own text boxes has keyboard focus, so
         // feature hotkeys don't fire while the player types a search or a
         // waypoint name.
-        public bool IsTyping => Open && GUIUtility.keyboardControl != 0;
+        public bool IsTyping => TypingInMenu;
+
+        // Remembered between sessions.
+        public int SectionIndex
+        {
+            get => (int)_section;
+            set => _section = (Section)Mathf.Clamp(value, 0, Pages.Length - 1);
+        }
+
+        public Vector2 WindowPosition
+        {
+            get => new Vector2(_windowRect.x, _windowRect.y);
+            set
+            {
+                if (value.x < -9000f)
+                    return; // never placed yet
+                _windowRect.x = value.x;
+                _windowRect.y = value.y;
+                _windowPlaced = true;
+            }
+        }
+
+        public bool WindowPlaced => _windowPlaced;
 
         private void Later(Action action) => _deferred.Add(action);
 
@@ -153,7 +186,7 @@ namespace FlyMod.UI
         {
             if (!Open)
             {
-                IsMouseOverOpenMenu = false;
+                _mouseOverWindow = false;
                 return;
             }
             Styles.Rebuild(Theme);
@@ -187,7 +220,8 @@ namespace FlyMod.UI
             // the drag handle, so the window can always be pulled back.
             _windowRect.x = Mathf.Clamp(_windowRect.x, -(SidebarWidth - S.S(40)), Screen.width - S.S(300));
             _windowRect.y = Mathf.Clamp(_windowRect.y, 0f, Screen.height - HeaderHeight);
-            IsMouseOverOpenMenu = _windowRect.Contains(Event.current.mousePosition);
+            _mouseOverWindow = _windowRect.Contains(Event.current.mousePosition);
+            TypingInMenu = GUIUtility.keyboardControl != 0;
 
             if (_deferred.Count > 0)
             {
@@ -553,9 +587,14 @@ namespace FlyMod.UI
             float textWidth = Mathf.Max(S.S(80), inner - switchWidth - S.S(12) - hotkeyWidth);
 
             GUIStyle heading = titleStyle ?? S.CardTitle;
+            // The badge sits beside the title when both fit, otherwise on its
+            // own line under it - side by side they used to push the card
+            // wider than its column.
+            bool badgeBeside = badge != null &&
+                heading.CalcSize(new GUIContent(title)).x + S.S(8) + badge.CalcSize(new GUIContent(badgeText)).x <= textWidth;
             float blockHeight = LineHeight(heading);
             if (badge != null)
-                blockHeight = Mathf.Max(blockHeight, LineHeight(badge));
+                blockHeight = badgeBeside ? Mathf.Max(blockHeight, LineHeight(badge)) : blockHeight + S.S(4) + LineHeight(badge);
             if (!string.IsNullOrEmpty(description))
                 blockHeight += S.S(3) + TextHeight(S.Description, description, textWidth);
             float switchHeight = S.S(24);
@@ -564,11 +603,20 @@ namespace FlyMod.UI
             GUILayout.BeginHorizontal();
             BeginCentered(rowHeight, blockHeight);
             GUILayout.BeginVertical(GUILayout.Width(textWidth));
-            if (badge != null)
+            if (badge != null && badgeBeside)
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(title, heading);
                 GUILayout.Space(S.S(8));
+                GUILayout.Label(badgeText, badge);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+            else if (badge != null)
+            {
+                GUILayout.Label(title, heading);
+                GUILayout.Space(S.S(4));
+                GUILayout.BeginHorizontal();
                 GUILayout.Label(badgeText, badge);
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -1196,6 +1244,13 @@ namespace FlyMod.UI
                     OpenCrashDumpFolder();
                 EndCentered();
                 GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+                ToggleRow(inner, "verbose", "Detailed logging",
+                    "Writes extra detail to the log (windows, popups, knockback). Turn it on when reporting a bug, off otherwise.",
+                    DebugLog.Verbose, () => { DebugLog.Verbose = !DebugLog.Verbose; Toggle("Detailed logging", DebugLog.Verbose); },
+                    titleStyle: S.BodyStrong);
             });
 
             Columns(width, column => Card(column, inner =>
@@ -1449,6 +1504,9 @@ namespace FlyMod.UI
                 GUILayout.Space(S.S(8));
                 if (Button("Report a bug", S.Secondary))
                     Application.OpenURL("https://github.com/NNKTV28/LoveMenu/issues/new/choose");
+                GUILayout.Space(S.S(8));
+                if (Button("Welcome tour", S.Secondary))
+                    Later(() => { SetOpen(false); OnShowWelcome?.Invoke(); });
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
             });

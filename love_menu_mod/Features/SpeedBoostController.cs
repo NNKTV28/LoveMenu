@@ -84,7 +84,7 @@ namespace FlyMod.Features
                 return;
 
             float extraSpeed = GroundBoostBaseSpeed * (Multiplier - 1f);
-            _playerContext.Avatar.transform.position += movement.normalized * extraSpeed * Time.deltaTime;
+            _playerContext.MoveAvatarBy(movement.normalized * extraSpeed * Time.deltaTime);
         }
 
         private static Vector3 ReadGroundMovementInput(Camera activeCamera)

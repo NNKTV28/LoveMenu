@@ -53,7 +53,7 @@ namespace FlyMod.Features
         {
             if (_playerContext.Avatar == null)
                 return;
-            _playerContext.Avatar.transform.position = targetPosition;
+            _playerContext.MoveAvatarTo(targetPosition);
             Reflect.ZeroVerticalVelocity();
         }
 

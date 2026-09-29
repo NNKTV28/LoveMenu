@@ -1,21 +1,41 @@
-# lcmem — memory tooling for the Lovecraft (Curio) client
+# Love Menu - Lovecraft Mod Menu
 
-A memory reader/writer for the **Lovecraft** client by The Virtual World Web Inc.
-(`Curio.exe`, Unity 64-bit with the Mono scripting backend), built for
-inspecting client-side state and applying community fixes.
+**Love Menu** is a free, open-source mod menu for **Lovecraft** (the Curio
+client by The Virtual World Web Inc.). Press **F7** in game to open it.
+
+**[⬇ Download the latest version](https://github.com/NNKTV28/LoveMenu/releases/latest)**
+· [Install guide](https://github.com/NNKTV28/LoveMenu/wiki/Love-Menu-Installation)
+· [All features](https://github.com/NNKTV28/LoveMenu/wiki/Love-Menu-Features)
+· [Report a bug](https://github.com/NNKTV28/LoveMenu/issues/new/choose)
+
+- **One-click install:** run the exe. It finds Lovecraft, installs BepInEx and
+  the menu, and starts the game.
+- **Movement:** fly (through walls), movement speed, unstick, body rotation lock.
+- **Camera:** field of view, zoom-out limit, screenshot mode that hides the HUD.
+- **Teleports:** find objects and keys in the room, waypoints, teleport to friends.
+- **Performance:** free memory, hide wings, texture quality, FPS/RAM overlay.
+- **Quality of life:** hotkeys for any feature, settings search, update notices,
+  crash diagnostics.
+
+The menu only runs when you start the game with the Love Menu exe; starting
+from Steam gives you the normal game. Everything is client-side - see
+[Read this first](#read-this-first).
+
+Licensed under [MIT](LICENSE). Want to report a bug or send a fix? Read
+[CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+---
+
+# lcmem - memory tooling for the Lovecraft client
+
+For modders: this repository also holds **lcmem**, a memory reader/writer for
+the Lovecraft client (`Curio.exe`, Unity 64-bit with the Mono scripting
+backend), used to investigate client-side state before building menu features.
 
 Pure Python + numpy. Nothing is injected into the game: no DLLs, no remote
 threads, no hooks. Everything works through `ReadProcessMemory` /
 `WriteProcessMemory` and by reading the game's own Mono data structures.
-
-This repository also holds **[Love Menu](love_menu_mod)**, an in-game menu
-built as a BepInEx plugin. Players want that one: download
-`LoveMenu-<version>.exe` from
-[Releases](https://github.com/NNKTV28/LoveMenu/releases).
-
-Documentation for both lives in the [wiki](https://github.com/NNKTV28/LoveMenu/wiki).
-Licensed under [MIT](LICENSE). Want to report a bug or send a fix? Read
-[CONTRIBUTING.md](CONTRIBUTING.md) first.
+Documentation: [wiki](https://github.com/NNKTV28/LoveMenu/wiki/lcmem).
 
 ## Read this first
 

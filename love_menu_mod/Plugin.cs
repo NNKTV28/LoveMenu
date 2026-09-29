@@ -37,7 +37,14 @@ namespace FlyMod
         private MiniOverlay _overlay;
         private UpdateChecker _updateChecker;
         private MenuUI _menuUI;
+        private WelcomeScreen _welcome;
         private PluginSettings _pluginSettings;
+
+        // Settings are saved every couple of seconds rather than only when the
+        // menu closes, so a crash doesn't lose them. Unchanged values don't
+        // touch the file.
+        private const float AutoSaveSeconds = 2f;
+        private float _nextAutoSave;
 
         // The launcher drops this file right before starting the game. A
         // normal Steam launch never writes it, so the menu stays out of the
@@ -117,9 +124,13 @@ namespace FlyMod
                 _bodyRotationLockController, _cameraController, _crashWorkaroundController, _systemStatsController,
                 _promoPopupController, _performanceController, _wingsHiderController,
                 _overlay, _updateChecker, _crashDumpController.DumpFolder, SavePluginSettings, ResetAllSettings);
+            _welcome = new WelcomeScreen(_menuUI.Theme, _keybinds, _overlay, () => _playerContext.PlayerName,
+                () => _playerContext.Avatar != null, () => _menuUI.SetOpen(true));
+            _menuUI.OnShowWelcome = _welcome.Show;
             _pluginSettings = new PluginSettings(Config, _keybinds, _hotkeys, _flyController, _speedBoostController,
                 _teleportController, _knockbackImmunityController, _bodyRotationLockController, _cameraController,
-                _crashWorkaroundController, _promoPopupController, _overlay, _menuUI);
+                _crashWorkaroundController, _promoPopupController, _performanceController, _wingsHiderController,
+                _overlay, _welcome, _menuUI);
         }
 
         private void SavePluginSettings() => _pluginSettings.Save();
@@ -209,16 +220,30 @@ namespace FlyMod
             HandleMenuToggleKey();
 
             _playerContext.UpdateForThisFrame();
-            _hotkeys.Tick(blocked: _playerContext.TypingInChat || _menuUI.IsTyping);
+            _hotkeys.Tick(blocked: Typing || _welcome.Visible);
+            _welcome.Tick();
 
             TickAllFeatures();
+
+            if (Time.unscaledTime >= _nextAutoSave)
+            {
+                _nextAutoSave = Time.unscaledTime + AutoSaveSeconds;
+                _pluginSettings.Save();
+            }
         }
 
+        // Typing in the game's chat or in one of the menu's text boxes: no
+        // movement keys, no hotkeys.
+        private bool Typing => _playerContext.TypingInChat || _menuUI.IsTyping;
+
         // In screenshot mode the menu key brings everything back instead of
-        // opening the menu on top of the clean view.
+        // opening the menu on top of the clean view. During the welcome tour
+        // the tour takes the key (its "try it" step).
         private void HandleMenuToggleKey()
         {
             if (!Input.GetKeyDown(_keybinds.MenuKey) || _menuUI.IsTyping)
+                return;
+            if (_welcome.TakeMenuKey())
                 return;
 
             if (_cameraController.ScreenshotMode)
@@ -231,9 +256,10 @@ namespace FlyMod
 
         private void TickAllFeatures()
         {
-            _flyController.Tick(_playerContext.TypingInChat, _keybinds.FlyUpKey, _keybinds.FlyDownKey);
+            _flyController.Tick(Typing, _keybinds.FlyUpKey, _keybinds.FlyDownKey);
             _knockbackImmunityController.Tick(_flyController.Flying);
-            _speedBoostController.Tick(_playerContext.TypingInChat, _flyController.Flying);
+            _bodyRotationLockController.Tick();
+            _speedBoostController.Tick(Typing, _flyController.Flying);
             _cameraController.Tick();
             _systemStatsController.Tick();
             _promoPopupController.Tick(Time.deltaTime, _playerContext.Avatar != null, _playerContext.TypingInChat);
@@ -257,6 +283,7 @@ namespace FlyMod
             _menuUI.Styles.Rebuild(_menuUI.Theme);
             _overlay.Draw(_menuUI.Styles);
             _menuUI.Draw();
+            _welcome.Draw(_menuUI.Styles);
             if (!_menuUI.Open)
                 Toasts.Draw(_menuUI.Styles, null);
         }

@@ -54,8 +54,13 @@ namespace FlyMod.Features
             _wasInWaterBeforeFlying = (bool)Reflect.InWaterField.GetValue(_playerContext.Avatar);
             Reflect.InWaterField.SetValue(_playerContext.Avatar, true);
 
+            // No collisions while flying: fly straight through walls,
+            // floors and furniture. Turned back on when landing.
             if (_avatarRigidbody != null)
+            {
                 _avatarRigidbody.useGravity = false;
+                _avatarRigidbody.detectCollisions = false;
+            }
         }
 
         private void ExitFlightState()
@@ -66,35 +71,53 @@ namespace FlyMod.Features
                 Reflect.InWaterField.SetValue(_playerContext.Avatar, _wasInWaterBeforeFlying.Value);
             _wasInWaterBeforeFlying = null;
 
+            if (_avatarRigidbody != null)
+                _avatarRigidbody.detectCollisions = true;
+
             // The game owns gravity: it turns it on whenever the avatar is
             // off the ground and out of water (DOMAnimLink.UpdateGravity).
             // Restoring the value from take-off (off, since the avatar was
             // standing then) left it floating with no gravity after landing,
-            // stuck in the falling state. Let the game work it out again.
-            if (DOMAnimLink.Self != null)
-                DOMAnimLink.Self.UpdateGravity();
+            // stuck in the falling state. Let the game work it out again -
+            // after forgetting the floor it stood on at take-off, which it
+            // never saw us leave because collisions were off in the air.
+            DOMAnimLink animLink = DOMAnimLink.Self;
+            if (animLink != null)
+            {
+                foreach (Collider ground in animLink.GroundedColliders.ToArray())
+                    animLink.RemoveGroundedCollider(ground);
+                animLink.UpdateGravity();
+            }
             else if (_avatarRigidbody != null)
+            {
                 _avatarRigidbody.useGravity = true;
-
-            bool inWaterAfterRestore = (bool)Reflect.InWaterField.GetValue(_playerContext.Avatar);
-            DebugLog.Info("Fly off: m_InWater after restore = " + inWaterAfterRestore +
-                (_avatarRigidbody != null ? ", rigidbody.useGravity = " + _avatarRigidbody.useGravity : ", no rigidbody"));
+            }
 
             DropToGroundBelow();
         }
 
-        // Whatever pulls the avatar down normally didn't resume on its own
-        // after being frozen mid-air - so land it ourselves: drop straight
-        // down onto the first surface below.
+        // Lands the avatar on the first solid surface straight below, so a
+        // long fall doesn't follow turning fly off. Trigger volumes and the
+        // avatar's own colliders are skipped: the old version snapped onto
+        // invisible trigger boxes ("ShadowBox", "ColliderObject") and could
+        // leave the avatar inside geometry.
         private void DropToGroundBelow()
         {
             Transform avatarTransform = _playerContext.Avatar.transform;
-            bool foundGround = Physics.Raycast(avatarTransform.position, Vector3.down, out RaycastHit groundHit, 5000f);
-            DebugLog.Info("Fly off: ground raycast from " + avatarTransform.position +
-                (foundGround ? " hit " + groundHit.point + " on " + groundHit.collider.name : " found nothing"));
+            Vector3 from = avatarTransform.position + Vector3.up * 0.2f;
+            RaycastHit[] hits = Physics.RaycastAll(from, Vector3.down, 5000f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
-            if (foundGround)
-                avatarTransform.position = groundHit.point + Vector3.up * 0.05f;
+            Transform avatarRoot = avatarTransform.root;
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider == null || hit.collider.transform.root == avatarRoot || Vector3.Dot(hit.normal, Vector3.up) < 0.5f)
+                    continue;
+                DebugLog.Detail("Fly off: landing on " + hit.collider.name + " at " + hit.point);
+                _playerContext.MoveAvatarTo(hit.point + Vector3.up * 0.05f);
+                return;
+            }
+            DebugLog.Detail("Fly off: no ground below, letting gravity take over");
         }
 
         public void Unstick()
@@ -102,7 +125,7 @@ namespace FlyMod.Features
             if (_playerContext.Avatar == null)
                 return;
             Reflect.ZeroVerticalVelocity();
-            _playerContext.Avatar.transform.position += Vector3.up * 3f;
+            _playerContext.MoveAvatarBy(Vector3.up * 3f);
         }
 
         public void Tick(bool typingInChat, KeyCode upKey, KeyCode downKey)
@@ -121,7 +144,7 @@ namespace FlyMod.Features
 
             // Re-assert every frame, moving or not - our position is simply
             // the last word each frame while flying is on.
-            _playerContext.Avatar.transform.position = _desiredPosition;
+            _playerContext.MoveAvatarTo(_desiredPosition);
         }
 
         private void CancelAmbientFallingVelocity()

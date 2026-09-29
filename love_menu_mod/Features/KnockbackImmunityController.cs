@@ -115,7 +115,7 @@ namespace FlyMod.Features
             if (skipReason != _lastSkipReason)
             {
                 // Temporary diagnostic: which state the avatar is in when a hit lands.
-                DebugLog.Info("Knockback immunity state: " + (skipReason.Length == 0 ? "holding" : "not holding - " + skipReason));
+                DebugLog.Detail("Knockback immunity state: " + (skipReason.Length == 0 ? "holding" : "not holding - " + skipReason));
                 _lastSkipReason = skipReason;
             }
             return skipReason.Length == 0;
@@ -136,6 +136,11 @@ namespace FlyMod.Features
             // Sitting, emotes and scripted poses place the avatar on purpose.
             if (avatar.PositionLocked)
                 return "position locked";
+            // Clicking a chair or a spot makes the game walk the avatar there
+            // with no keys pressed - holding still would stop it from ever
+            // arriving (and sitting down on the chair).
+            if (DOMAnimLink.Self != null && DOMAnimLink.Self.IsPathing)
+                return "walking to a spot";
 
             if (HasMovementInput(avatar))
                 _lastInputTime = Time.time;
@@ -155,7 +160,7 @@ namespace FlyMod.Features
             // and immunity being off are expected movement, not worth a line.
             bool expectedMovement = _lastSkipReason == "flying" || _lastSkipReason == "off" || _lastSkipReason == "movement input";
             if (drift > 0.5f && !expectedMovement)
-                DebugLog.Info("Knockback immunity: moved " + drift.ToString("0.00") + " units in 0.25s (state: " +
+                DebugLog.Detail("Knockback immunity: moved " + drift.ToString("0.00") + " units in 0.25s (state: " +
                     (_lastSkipReason.Length == 0 ? "holding" : _lastSkipReason) + ", velocity " +
                     _rigidbody.linearVelocity.magnitude.ToString("0.00") + ", rigidbody at " + _rigidbody.position + ", transform at " + position + ")");
             _driftWindowStart = position;
@@ -230,6 +235,7 @@ namespace FlyMod.Features
             if (avatarRigidbody != null)
                 avatarRigidbody.position = _positionBeforeUpdate;
             avatar.transform.position = _positionBeforeUpdate;
+            Physics.SyncTransforms();
         }
     }
 }
