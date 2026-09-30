@@ -26,7 +26,9 @@ namespace FlyMod.Features
         public Corner Position = Corner.TopRight;
         public int RangeIndex = 1;
         public float SizePx = 220f;
-        public bool TurnWithCamera = true;
+        // The map stays north-up; your arrow turns with the camera. (A turning
+        // map spilled its corners outside the frame and was hard to read.)
+        public const bool TurnWithCamera = false;
         public bool ShowPicture = true;
         public bool ClickToTeleport = true;
 

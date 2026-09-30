@@ -18,7 +18,7 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.7.0";
+        public const string Version = "1.7.1";
 
         // Saved by number, so new pages go at the end.
         private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits, Rendering, Fortune, Glitches, People }
@@ -1130,9 +1130,6 @@ namespace FlyMod.UI
             GUILayout.Space(S.S(4));
             Segmented(Minimap.RangeNames, map.RangeIndex, index => map.RangeIndex = index, inner);
             GUILayout.Space(S.S(12));
-            ToggleRow(inner, "map-turn", "Turn with the camera", "Off: north is always up.",
-                map.TurnWithCamera, () => map.TurnWithCamera = !map.TurnWithCamera, titleStyle: S.BodyStrong);
-            GUILayout.Space(S.S(10));
             ToggleRow(inner, "map-picture", "Map picture", "A top-down view of the room behind the dots. Off saves a little FPS.",
                 map.ShowPicture, () => map.ShowPicture = !map.ShowPicture, titleStyle: S.BodyStrong);
             GUILayout.Space(S.S(10));

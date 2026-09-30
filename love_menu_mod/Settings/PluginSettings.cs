@@ -205,7 +205,6 @@ namespace FlyMod.Settings
             Minimap.Instance.Enabled = _mapEnabledEntry.Value;
             Minimap.Instance.Position = (Minimap.Corner)Mathf.Clamp(_mapCornerEntry.Value, 0, 3);
             Minimap.Instance.RangeIndex = Mathf.Clamp(_mapRangeEntry.Value, 0, Minimap.Ranges.Length - 1);
-            Minimap.Instance.TurnWithCamera = _mapTurnEntry.Value;
             Minimap.Instance.ShowPicture = _mapPictureEntry.Value;
             Minimap.Instance.ClickToTeleport = _mapClickEntry.Value;
             NameTagDistance.Instance.Choice = _nameTagEntry.Value;
@@ -308,7 +307,6 @@ namespace FlyMod.Settings
             _mapEnabledEntry.Value = Minimap.Instance.Enabled;
             _mapCornerEntry.Value = (int)Minimap.Instance.Position;
             _mapRangeEntry.Value = Minimap.Instance.RangeIndex;
-            _mapTurnEntry.Value = Minimap.Instance.TurnWithCamera;
             _mapPictureEntry.Value = Minimap.Instance.ShowPicture;
             _mapClickEntry.Value = Minimap.Instance.ClickToTeleport;
             _nameTagEntry.Value = NameTagDistance.Instance.Choice;
