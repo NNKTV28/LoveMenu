@@ -131,10 +131,10 @@ namespace FlyMod.Features
         private static void MarkCurrentAnswer()
         {
             var texts = new List<(Component Component, string Text)>();
-            foreach (UnityEngine.UI.Text text in UnityEngine.Object.FindObjectsOfType<UnityEngine.UI.Text>())
+            foreach (UnityEngine.UI.Text text in UnityEngine.Object.FindObjectsByType<UnityEngine.UI.Text>(UnityEngine.FindObjectsSortMode.None))
                 texts.Add((text, text.text ?? ""));
             if (TextMeshProType != null && TextMeshProText != null)
-                foreach (Component text in UnityEngine.Object.FindObjectsOfType(TextMeshProType))
+                foreach (Component text in UnityEngine.Object.FindObjectsByType(TextMeshProType, UnityEngine.FindObjectsSortMode.None))
                     texts.Add((text, TextMeshProText.GetValue(text, null) as string ?? ""));
 
             Entry current = null;

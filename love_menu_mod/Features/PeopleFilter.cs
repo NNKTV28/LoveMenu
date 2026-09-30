@@ -105,7 +105,7 @@ namespace FlyMod.Features
                 _friends = FriendIds();
             }
 
-            DOMControllerLink[] controllers = UnityEngine.Object.FindObjectsOfType<DOMControllerLink>();
+            DOMControllerLink[] controllers = RoomScan.Controllers();
 
             // Who is shown, per persona, decided from their main avatar.
             Guid me = Guid.Empty;

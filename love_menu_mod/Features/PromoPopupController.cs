@@ -96,7 +96,7 @@ namespace FlyMod.Features
 
         private void HideMatchingWindows()
         {
-            foreach (GUIBaseWindow window in UnityEngine.Object.FindObjectsOfType<GUIBaseWindow>())
+            foreach (GUIBaseWindow window in UnityEngine.Object.FindObjectsByType<GUIBaseWindow>(UnityEngine.FindObjectsSortMode.None))
             {
                 try
                 {

@@ -67,10 +67,31 @@ namespace FlyMod.Features
 
         public int WithMenu { get; private set; }
 
-        public static long Begin() => System.Diagnostics.Stopwatch.GetTimestamp();
+        // What Love Menu code the main thread is running right now, read by
+        // the freeze watchdog: a freeze inside a menu feature is then named
+        // in the log, and anything else is the game's own code.
+        public static volatile string Phase = "game code (not Love Menu)";
+        public const string GamePhase = "game code (not Love Menu)";
+
+        // For hooks that run inside the game's own code: returns what to put back.
+        public static string Enter(string hook)
+        {
+            string previous = Phase;
+            Phase = "Love Menu hook: " + hook;
+            return previous;
+        }
+
+        public static void Leave(string previous) => Phase = previous;
+
+        public static long Begin(string feature)
+        {
+            Phase = "Love Menu: " + feature;
+            return System.Diagnostics.Stopwatch.GetTimestamp();
+        }
 
         public static void End(string feature, long started)
         {
+            Phase = GamePhase;
             double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * TicksToMs;
             if (ms < MenuReportMs)
                 return;

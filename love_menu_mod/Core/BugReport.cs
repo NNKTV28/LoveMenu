@@ -27,7 +27,7 @@ namespace FlyMod.Core
             {
                 Add(zip, Path.Combine(bepInEx, "LogOutput.log"), "bepinex/LogOutput.log");
                 Add(zip, Path.Combine(bepInEx, "config", "local.flymod.cfg"), "bepinex/local.flymod.cfg");
-                foreach (string name in new[] { "errors.log", "errors-previous.log", "errors-summary.txt", "graphics.txt", "graphics-last.txt" })
+                foreach (string name in new[] { "errors.log", "errors-previous.log", "errors-summary.txt", "graphics.txt", "graphics-last.txt", "lag.log" })
                     Add(zip, Path.Combine(bepInEx, "LoveMenu", name), "lovemenu/" + name);
                 string dumps = Path.Combine(Paths.GameRootPath, "BepInEx", "CrashDumps");
                 if (Directory.Exists(dumps))
@@ -39,6 +39,15 @@ namespace FlyMod.Core
                 ZipArchiveEntry info = zip.CreateEntry("system.txt");
                 using (var writer = new StreamWriter(info.Open(), Encoding.UTF8))
                     writer.Write(SystemSummary());
+
+                // Where every other thread is right now (the same report a
+                // freeze writes to hangs.log), for comparing with a freeze.
+                ZipArchiveEntry threads = zip.CreateEntry("threads-now.txt");
+                using (var writer = new StreamWriter(threads.Open(), Encoding.UTF8))
+                {
+                    try { writer.Write(HangStacks.Describe()); }
+                    catch (Exception exception) { writer.Write("Could not read the threads: " + exception.Message); }
+                }
             }
             LastPath = path;
             DebugLog.Info("Crash report saved to " + path);

@@ -85,7 +85,7 @@ namespace FlyMod.Features
         private HashSet<Guid> FriendsInRoom()
         {
             var found = new HashSet<Guid>();
-            foreach (DOMControllerLink avatar in UnityEngine.Object.FindObjectsOfType<DOMControllerLink>())
+            foreach (DOMControllerLink avatar in RoomScan.Controllers())
             {
                 if (avatar == null || avatar.IsPlayerAvatar || !avatar.IsPersona)
                     continue;

@@ -210,8 +210,10 @@ namespace FlyMod.Features
     {
         static void Postfix(ChatChannelMessageEventArgs msg)
         {
+            string phase = LagRecorder.Enter("chat log");
             LagRecorder.CountChatMessage();
             ChatLog.Instance.Receive(msg);
+            LagRecorder.Leave(phase);
         }
     }
 }

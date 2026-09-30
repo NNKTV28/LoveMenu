@@ -176,8 +176,6 @@ namespace FlyMod
                 () => Toasts.Show(_teleportController.GoToNextCollectible()));
             _hotkeys.Register("questgiver", "Go to quest giver", KeyCode.None,
                 () => Toasts.Show(_teleportController.GoToQuestGiver()));
-            _hotkeys.Register("gotosafe", "Go to safe", KeyCode.None,
-                () => Toasts.Show(_teleportController.GoToSafe()));
             _hotkeys.Register("back", "Back (undo teleport)", KeyCode.None,
                 () => Toasts.Show(_teleportController.GoBack()));
             _hotkeys.Register("minimap", "Minimap", KeyCode.None,
@@ -218,6 +216,18 @@ namespace FlyMod
                     "the channel you picked is shown. The chat loads at login, so this applies after restarting the game.",
                 Enabled = false,
                 OnToggle = enabled => ScriptFixes.ChatOverlapFix = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Name = "Stuck in action fix",
+                Page = WorkaroundPage.Glitches,
+                OnByDefault = true,
+                Description = "\"Player is busy\" after a pose, dance or other shared action, until F5: the group window's " +
+                    "Exit button was greyed out for everyone except the one who started the action, so the others stayed " +
+                    "in the group on the server. Exit now works for everyone and takes you out of the group.",
+                Enabled = false,
+                OnToggle = enabled => ScriptFixes.GroupExitFix = enabled,
             });
 
             _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
@@ -379,7 +389,9 @@ namespace FlyMod
         private void Update()
         {
             _crashDumpController.Heartbeat();
+            long __e = LagRecorder.Begin("error logger");
             ErrorLogger.Tick();
+            LagRecorder.End("error logger", __e);
             LagRecorder.Instance.Tick();
             PoseRecorder.Instance.Tick(_playerContext);
             PoseParentFix.Tick();
@@ -430,75 +442,93 @@ namespace FlyMod
         private void TickAllFeatures()
         {
             long __t;
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("fly");
             _flyController.Tick(Typing, _keybinds.FlyUpKey, _keybinds.FlyDownKey);
             LagRecorder.End("fly", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("knockbackImmunity");
             _knockbackImmunityController.Tick(_flyController.Flying);
             LagRecorder.End("knockbackImmunity", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("bodyRotationLock");
             _bodyRotationLockController.Tick();
             LagRecorder.End("bodyRotationLock", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("speedBoost");
             _speedBoostController.Tick(Typing, _flyController.Flying);
             LagRecorder.End("speedBoost", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("camera");
             _cameraController.Tick();
             LagRecorder.End("camera", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("systemStats");
             _systemStatsController.Tick();
             LagRecorder.End("systemStats", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("promoPopup");
             _promoPopupController.Tick(Time.deltaTime, _playerContext.Avatar != null, _playerContext.TypingInChat);
             LagRecorder.End("promoPopup", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("uiDebug");
             _uiDebugController.Tick(Time.deltaTime);
             LagRecorder.End("uiDebug", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("performance");
             _performanceController.Tick(Time.deltaTime);
             LagRecorder.End("performance", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("wingsHider");
             _wingsHiderController.Tick(Time.deltaTime);
             LagRecorder.End("wingsHider", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("renderTweaks");
             _renderTweaks.Tick();
             LagRecorder.End("renderTweaks", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("FpsBenchmark");
             FpsBenchmark.Tick(Time.unscaledDeltaTime);
             LagRecorder.End("FpsBenchmark", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("FriendNotifier");
             FriendNotifier.Instance.Tick();
             LagRecorder.End("FriendNotifier", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("RoomScan");
             RoomScan.Instance.Tick();
             LagRecorder.End("RoomScan", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("Minimap");
             Minimap.Instance.Tick(_playerContext);
             LagRecorder.End("Minimap", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("NameTagDistance");
             NameTagDistance.Instance.Tick();
             LagRecorder.End("NameTagDistance", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("AutoCrowd");
             AutoCrowd.Instance.Tick();
             LagRecorder.End("AutoCrowd", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("ChatLog");
             ChatLog.Instance.Tick(_playerContext.PlayerName);
             LagRecorder.End("ChatLog", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("PeopleFilter");
             PeopleFilter.Instance.Tick();
             LagRecorder.End("PeopleFilter", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("FortuneTracker");
             FortuneTracker.Instance.Tick();
             LagRecorder.End("FortuneTracker", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("collectionLogger");
             _collectionLogger.Tick();
             LagRecorder.End("collectionLogger", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("QuizHelper");
             QuizHelper.Tick();
             LagRecorder.End("QuizHelper", __t);
-            __t = LagRecorder.Begin();
+            __t = LagRecorder.Begin("updateChecker");
             _updateChecker.Tick();
             LagRecorder.End("updateChecker", __t);
+        }
+
+        // Alt-tab: logged with how long the game was in the background, so a
+        // freeze or stutter right after coming back can be matched to it.
+        private DateTime _focusLostAt;
+
+        private void OnApplicationFocus(bool focused)
+        {
+            CrashDumpController.WindowFocused = focused;
+            if (!focused)
+            {
+                _focusLostAt = DateTime.Now;
+                DebugLog.Info("Window in the background");
+            }
+            else if (_focusLostAt != default(DateTime))
+            {
+                DebugLog.Info("Window back in front after " + (DateTime.Now - _focusLostAt).TotalSeconds.ToString("0") + " s");
+            }
         }
 
         private void OnGUI()
@@ -512,7 +542,7 @@ namespace FlyMod
 
             // The overlay shows whether or not the menu is open, drawn first
             // so the menu window sits on top of it.
-            long __draw = LagRecorder.Begin();
+            long __draw = LagRecorder.Begin("menu drawing");
             _menuUI.Styles.Rebuild(_menuUI.Theme);
             _overlay.Draw(_menuUI.Styles);
             Minimap.Instance.Draw(_menuUI.Styles, _playerContext);

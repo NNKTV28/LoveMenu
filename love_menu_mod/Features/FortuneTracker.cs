@@ -118,7 +118,7 @@ namespace FlyMod.Features
             if (_toLocate.Count > 0)
             {
                 // Server objects are named "[DOMRenderable: 244] Kiss of Fortune".
-                foreach (Transform transform in UnityEngine.Object.FindObjectsOfType<Transform>())
+                foreach (Transform transform in UnityEngine.Object.FindObjectsByType<Transform>(UnityEngine.FindObjectsSortMode.None))
                 {
                     Match match = DomId.Match(transform.name);
                     if (!match.Success)

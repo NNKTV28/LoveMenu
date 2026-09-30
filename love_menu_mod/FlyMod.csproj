@@ -9,6 +9,11 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 
+  <!-- Dev build: dotnet build -c Release -p:DevBuild=true (shows the developer tools) -->
+  <PropertyGroup Condition="'$(DevBuild)' == 'true'">
+    <DefineConstants>$(DefineConstants);DEV</DefineConstants>
+  </PropertyGroup>
+
   <PropertyGroup>
     <!-- Override with: dotnet build -c Release -p:GameDir="C:\path\to\LoveCraft\Application" -->
     <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\LoveCraft\Application</GameDir>

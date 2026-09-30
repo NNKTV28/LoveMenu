@@ -50,7 +50,7 @@ namespace FlyMod.Features
             {
                 _nextTagRefresh = Time.unscaledTime + 3f;
                 _tags.Clear();
-                foreach (DOMTitleText tag in Object.FindObjectsOfType<DOMTitleText>(true))
+                foreach (DOMTitleText tag in Object.FindObjectsByType<DOMTitleText>(UnityEngine.FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None))
                 {
                     var canvases = new List<Canvas>(tag.GetComponentsInChildren<Canvas>(true));
                     Canvas parent = tag.GetComponentInParent<Canvas>(true);

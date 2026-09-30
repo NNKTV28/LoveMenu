@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <ApplicationIcon>app_icon.ico</ApplicationIcon>
-    <Version>1.7.1</Version>
+    <Version>1.8.0</Version>
     <!-- Shown in the exe's Properties > Details. -->
     <Product>Love Menu</Product>
     <AssemblyTitle>Love Menu Launcher</AssemblyTitle>

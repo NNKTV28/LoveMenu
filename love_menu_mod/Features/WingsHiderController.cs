@@ -80,7 +80,7 @@ namespace FlyMod.Features
             }
 
             int matched = 0;
-            foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
+            foreach (Renderer renderer in UnityEngine.Object.FindObjectsByType<Renderer>(UnityEngine.FindObjectsSortMode.None))
             {
                 if (renderer == null || !renderer.enabled || !IsWingRenderer(renderer) || IsMine(renderer))
                     continue;
@@ -110,7 +110,7 @@ namespace FlyMod.Features
                 return;
 
             int logged = 0;
-            foreach (SkinnedMeshRenderer renderer in UnityEngine.Object.FindObjectsOfType<SkinnedMeshRenderer>())
+            foreach (SkinnedMeshRenderer renderer in UnityEngine.Object.FindObjectsByType<SkinnedMeshRenderer>(UnityEngine.FindObjectsSortMode.None))
             {
                 if (renderer == null || logged >= 60)
                     continue;

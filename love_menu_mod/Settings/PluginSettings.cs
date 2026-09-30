@@ -172,7 +172,9 @@ namespace FlyMod.Settings
             _cameraController.Fov = _fovEntry.Value;
             _cameraController.HideOwnAvatarInScreenshots = _hideAvatarInScreenshotsEntry.Value;
 
-            _performanceController.AutoFreeEnabled = _autoFreeEntry.Value;
+            // Auto-free was removed (it came right before two freezes); an
+            // old "on" setting is ignored.
+            _performanceController.AutoFreeEnabled = false;
             _performanceController.AutoFreeThresholdMB = _autoFreeThresholdEntry.Value;
             _wingsHiderController.Enabled = _hideWingsEntry.Value;
             if (_textureLimitEntry.Value >= 0)
@@ -195,7 +197,8 @@ namespace FlyMod.Settings
             _overlay.ShowRam = _overlayRamEntry.Value;
             _overlay.ShowActiveFeatures = _overlayActiveEntry.Value;
             _menuUI.DismissedUpdateVersion = _dismissedUpdateEntry.Value;
-            DebugLog.Verbose = _detailedLoggingEntry.Value;
+            // Detailed logging is a developer tool: public builds keep it off.
+            DebugLog.Verbose = BuildInfo.Dev && _detailedLoggingEntry.Value;
             QuizHelper.Enabled = _quizHelperEntry.Value;
             PeopleFilter.Instance.Current = (PeopleFilter.Mode)Mathf.Clamp(_showPeopleEntry.Value, 0, 2);   // Picked isn't kept: its picks are per session
             FortuneTracker.Instance.Decode(_fortuneBallsEntry.Value);
@@ -298,7 +301,8 @@ namespace FlyMod.Settings
             _overlayRamEntry.Value = _overlay.ShowRam;
             _overlayActiveEntry.Value = _overlay.ShowActiveFeatures;
             _dismissedUpdateEntry.Value = _menuUI.DismissedUpdateVersion;
-            _detailedLoggingEntry.Value = DebugLog.Verbose;
+            if (BuildInfo.Dev)
+                _detailedLoggingEntry.Value = DebugLog.Verbose;
             _quizHelperEntry.Value = QuizHelper.Enabled;
             _showPeopleEntry.Value = PeopleFilter.Instance.Current == PeopleFilter.Mode.Picked ? 0 : (int)PeopleFilter.Instance.Current;
             _fortuneNotifyEntry.Value = FortuneTracker.Instance.NotifyWhenFree;

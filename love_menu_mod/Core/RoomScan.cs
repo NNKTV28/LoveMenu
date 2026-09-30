@@ -29,15 +29,36 @@ namespace FlyMod.Core
         private const float ScanSeconds = 0.5f;
         private const float FriendsRefreshSeconds = 15f;
         private const float NamesRefreshSeconds = 5f;
+        private const int NameRefreshesPerScan = 8;       // spread out, not all at once
+        private const float ControllersSeconds = 0.5f;
         private const float IdleAfterSeconds = 3f;
 
         public readonly List<Entry> Entries = new List<Entry>();
         public int PlayerCount { get; private set; }
         public string MyClan { get; private set; } = "";
 
-        private float _nextScan, _nextFriends, _nextNames, _lastWanted = -100f;
+        private float _nextScan, _nextFriends, _lastWanted = -100f;
         private HashSet<Guid> _friends = new HashSet<Guid>();
-        private readonly Dictionary<int, (string Name, string Clan)> _nameCache = new Dictionary<int, (string, string)>();
+        private readonly Dictionary<int, (string Name, string Clan, float Until)> _nameCache = new Dictionary<int, (string, string, float)>();
+
+        // Every avatar, NPC and prop controller in the room. Searching the
+        // scene for them costs 20-40 ms in a crowd, so one search is shared
+        // by everything that needs them (room scan, friend notices, people
+        // filter) for half a second.
+        private static DOMControllerLink[] _controllers = new DOMControllerLink[0];
+        private static float _controllersAt = -100f;
+        private static int _controllersFrame = -1;
+
+        public static DOMControllerLink[] Controllers()
+        {
+            if (Time.frameCount != _controllersFrame && Time.unscaledTime - _controllersAt >= ControllersSeconds)
+            {
+                _controllers = UnityEngine.Object.FindObjectsByType<DOMControllerLink>(UnityEngine.FindObjectsSortMode.None);
+                _controllersAt = Time.unscaledTime;
+                _controllersFrame = Time.frameCount;
+            }
+            return _controllers;
+        }
 
         // Scanning only runs while a feature has asked for it recently.
         public void Want() => _lastWanted = Time.unscaledTime;
@@ -64,16 +85,13 @@ namespace FlyMod.Core
                 _nextFriends = Time.unscaledTime + FriendsRefreshSeconds;
                 _friends = PeopleFilter.FriendIds();
             }
-            bool refreshNames = Time.unscaledTime >= _nextNames;
-            if (refreshNames)
-            {
-                _nextNames = Time.unscaledTime + NamesRefreshSeconds;
-                _nameCache.Clear();
-            }
-
             Entries.Clear();
             int players = 0;
-            foreach (DOMControllerLink controller in UnityEngine.Object.FindObjectsOfType<DOMControllerLink>())
+            int refreshes = 0;
+            DOMControllerLink[] controllers = Controllers();
+            if (_nameCache.Count > controllers.Length * 2 + 50)
+                _nameCache.Clear();         // forget avatars that left
+            foreach (DOMControllerLink controller in controllers)
             {
                 if (controller == null)
                     continue;
@@ -81,9 +99,11 @@ namespace FlyMod.Core
                 if (person && !controller.IsPersona)
                     continue;               // pets and rides follow their owner
                 int id = controller.GetInstanceID();
-                if (!_nameCache.TryGetValue(id, out var label))
+                bool known = _nameCache.TryGetValue(id, out var label);
+                if (!known || (Time.unscaledTime >= label.Until && refreshes++ < NameRefreshesPerScan))
                 {
-                    label = (Label(controller, person), person ? PeopleFilter.ClanOf(controller) : "");
+                    label = (Label(controller, person), person ? PeopleFilter.ClanOf(controller) : "",
+                        Time.unscaledTime + NamesRefreshSeconds + UnityEngine.Random.value * 2f);
                     _nameCache[id] = label;
                 }
                 if (!person && TeleportController.IsProp(label.Name))

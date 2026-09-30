@@ -28,6 +28,7 @@ namespace FlyMod.Core
         private Timer _watchdogTimer;
         private DateTime _lastHeartbeatUtc;
         private volatile bool _dumpWritten;
+        public static volatile bool WindowFocused = true;
 
         public string DumpFolder => _dumpFolder;
 
@@ -38,6 +39,7 @@ namespace FlyMod.Core
             Directory.CreateDirectory(_dumpFolder);
 
             _lastHeartbeatUtc = DateTime.UtcNow;
+            HangStacks.RememberMainThread();
             TrimOldFiles();
             Application.logMessageReceivedThreaded += OnLogMessage;
             _watchdogTimer = new Timer(CheckForHang, null, 1000, 1000);
@@ -124,8 +126,38 @@ namespace FlyMod.Core
                 return;
 
             _dumpWritten = true; // one dump per session - a stuck process won't recover to reset this anyway
+            string phase = FlyMod.Features.LagRecorder.Phase;
+            _logger?.LogWarning("Hang detected: the main thread was in " + phase);
             FlyMod.Features.GraphicsApiSetting.NoteHang();
             WriteMiniDump();
+            WriteStacks(phase);
+        }
+
+        // Names the C# methods each thread is in (HangStacks), in the log and
+        // in hangs.log, which keeps every freeze across sessions.
+        private void WriteStacks(string phase)
+        {
+            string stacks;
+            try
+            {
+                stacks = HangStacks.Describe();
+            }
+            catch (Exception exception)
+            {
+                stacks = "(could not read the threads: " + exception.Message + ")";
+            }
+            _logger?.LogWarning("Hang: where each thread is stuck:" + Environment.NewLine + stacks);
+            try
+            {
+                File.AppendAllText(Path.Combine(_dumpFolder, "hangs.log"),
+                    "=== Freeze at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + ", window " +
+                    (WindowFocused ? "focused" : "in the background") + ", main thread in " + phase +
+                    Environment.NewLine + stacks + Environment.NewLine);
+            }
+            catch
+            {
+                // best effort
+            }
         }
 
         private void WriteMiniDump()

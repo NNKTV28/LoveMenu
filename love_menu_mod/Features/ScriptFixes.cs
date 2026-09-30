@@ -75,6 +75,17 @@ namespace FlyMod.Features
             " try { for (let __g in this._channelGroups) for (let __c of this._channelGroups[__g].channels)" +
             " if (__c !== this.activeChannel && __c._surface) __c._surface.Visible = false; } catch (__e) { }";
 
+        // "Player is busy" until F5 - pkg://groupmanager/Main.js. The group
+        // window (shared poses, dances, other actions) finds "you" in the
+        // member list for its Exit button, but compares the wrong values:
+        // only the group leader is ever found, so for everyone else Exit is
+        // disabled. They can't leave, the server keeps them in the group,
+        // and every new action or invite says they're in another group.
+        public static bool GroupExitFix;
+
+        private const string GroupExitFind = "GROUP.members.find(obj => PERSONA_ID === groupMasterId)";
+        private const string GroupExitFixed = "GROUP.members.find(obj => obj.PersonaID === PERSONA_ID)";
+
         public static void Apply(ref string script, string source)
         {
             if (string.IsNullOrEmpty(script) || string.IsNullOrEmpty(source))
@@ -94,6 +105,14 @@ namespace FlyMod.Features
                     script = script.Replace(ChannelSwitchedAnchor, ChannelSwitchedAnchor + ChannelSwitchedFix);
                     Applied++;
                     DebugLog.Info("Script fix: chat overlap fix applied to " + source);
+                }
+
+                if (GroupExitFix && source.EndsWith("groupmanager/Main.js", StringComparison.OrdinalIgnoreCase) &&
+                    CountOf(script, GroupExitFind) == 1)
+                {
+                    script = script.Replace(GroupExitFind, GroupExitFixed);
+                    Applied++;
+                    DebugLog.Info("Script fix: group exit fix applied to " + source);
                 }
 
                 if (ClothingRemoveFix && source.EndsWith("content/Clothing.js", StringComparison.OrdinalIgnoreCase) &&

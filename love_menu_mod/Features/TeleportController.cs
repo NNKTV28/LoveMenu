@@ -127,7 +127,7 @@ namespace FlyMod.Features
         public void RefreshNearbyNpcs()
         {
             NearbyNpcs.Clear();
-            foreach (DOMControllerLink character in UnityEngine.Object.FindObjectsOfType<DOMControllerLink>())
+            foreach (DOMControllerLink character in UnityEngine.Object.FindObjectsByType<DOMControllerLink>(UnityEngine.FindObjectsSortMode.None))
             {
                 if (character == null || character.IsPlayerAvatar || character.IsPersona)
                     continue;
@@ -252,12 +252,18 @@ namespace FlyMod.Features
             // Keyed by name so an object split across LOD renderers shows
             // up once, not three times.
             var nearestByName = new Dictionary<string, Vector3>(StringComparer.Ordinal);
-            foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
+            foreach (Renderer renderer in UnityEngine.Object.FindObjectsByType<Renderer>(UnityEngine.FindObjectsSortMode.None))
             {
-                GameObject candidate = renderer.gameObject;
+                // Picked-up items can be hidden rather than removed.
+                if (!renderer.enabled || renderer.forceRenderingOff)
+                    continue;
+
+                // The pickup is the server object ("[DOMRenderable: 5] Shell_01");
+                // its visible mesh is often a child part with another name.
+                GameObject candidate = ServerObjectOf(renderer.transform)?.gameObject ?? renderer.gameObject;
                 string name = candidate.name;
                 string cleanName = CleanObjectName(name);
-                if (!MatchesAny(cleanName, terms))
+                if (!MatchesAny(cleanName, terms) && !MatchesAny(CleanObjectName(renderer.gameObject.name), terms))
                     continue;
                 if (StrictNames && !LooksLikeQuestPickup(name, cleanName))
                     continue;
@@ -282,8 +288,20 @@ namespace FlyMod.Features
 
             string searched = string.Join(", ", terms);
             CollectibleSearchStatus = NearbyCollectibles.Count == 0
-                ? "Nothing matching \"" + searched + "\"" + (StrictNames ? " - try turning Exact names off." : " in this room.")
+                ? "Nothing matching \"" + searched + "\"" + (StrictNames && BuildInfo.Dev ? " - try turning Exact names off." : " in this room.")
                 : NearbyCollectibles.Count + " found, nearest first.";
+        }
+
+        // The nearest "[DOM...]" server object at or above a mesh (4 levels).
+        private static Transform ServerObjectOf(Transform transform)
+        {
+            for (int depth = 0; depth < 5 && transform != null; depth++)
+            {
+                if (transform.name.StartsWith("[DOM", StringComparison.Ordinal))
+                    return transform;
+                transform = transform.parent;
+            }
+            return null;
         }
 
         // --- Go to next ------------------------------------------------------
@@ -345,34 +363,6 @@ namespace FlyMod.Features
             return "Visited all " + NearbyCollectibles.Count + " here - press again to go round once more";
         }
 
-        // Key Hunter event: keys are deposited into a safe (carry limit 5).
-        // The safe shows up as the server object "OpenSafeVFX"; anything
-        // else with "Safe" in its server name is the fallback.
-        public bool SearchingForKeys => (CollectibleSearchTerm ?? "").IndexOf("key", StringComparison.OrdinalIgnoreCase) >= 0;
-
-        public string GoToSafe()
-        {
-            Vector3? safe = null;
-            foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
-            {
-                string name = renderer.gameObject.name;
-                string cleanName = CleanObjectName(name);
-                bool serverObject = name.Length != cleanName.Length;
-                if (string.Equals(cleanName, "OpenSafeVFX", StringComparison.OrdinalIgnoreCase))
-                {
-                    safe = renderer.transform.position;
-                    break;
-                }
-                if (safe == null && serverObject && cleanName.IndexOf("Safe", StringComparison.OrdinalIgnoreCase) >= 0)
-                    safe = renderer.transform.position;
-            }
-
-            if (safe == null)
-                return "No safe in this room";
-            GoToPosition(safe.Value);
-            return "At the safe";
-        }
-
         private static bool MatchesAny(string name, string[] terms)
         {
             foreach (string term in terms)
@@ -428,7 +418,7 @@ namespace FlyMod.Features
             Transform ownRoot = _playerContext.Avatar.transform.root;
 
             var nearest = new Dictionary<string, (float Distance, bool Server)>(StringComparer.OrdinalIgnoreCase);
-            foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
+            foreach (Renderer renderer in UnityEngine.Object.FindObjectsByType<Renderer>(UnityEngine.FindObjectsSortMode.None))
             {
                 if (renderer.transform.root == ownRoot)
                     continue;
@@ -457,7 +447,7 @@ namespace FlyMod.Features
             var serverNames = new SortedDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var allNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int sceneObjects = 0;
-            foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
+            foreach (Renderer renderer in UnityEngine.Object.FindObjectsByType<Renderer>(UnityEngine.FindObjectsSortMode.None))
             {
                 string name = renderer.gameObject.name;
                 string cleanName = CleanObjectName(name);
@@ -548,7 +538,7 @@ namespace FlyMod.Features
         private void CollectFriendsInThisRoom(Dictionary<Guid, string> friends)
         {
             var alreadyAdded = new HashSet<Guid>();
-            foreach (DOMControllerLink avatar in UnityEngine.Object.FindObjectsOfType<DOMControllerLink>())
+            foreach (DOMControllerLink avatar in UnityEngine.Object.FindObjectsByType<DOMControllerLink>(UnityEngine.FindObjectsSortMode.None))
             {
                 if (avatar == null || avatar.IsPlayerAvatar)
                     continue;

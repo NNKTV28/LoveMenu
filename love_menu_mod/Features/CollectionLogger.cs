@@ -88,7 +88,7 @@ namespace FlyMod.Features
 
         private void TrackServerObjects()
         {
-            foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
+            foreach (Renderer renderer in UnityEngine.Object.FindObjectsByType<Renderer>(UnityEngine.FindObjectsSortMode.None))
             {
                 int rendererId = renderer.gameObject.GetInstanceID();
                 if (_ignored.Contains(rendererId))

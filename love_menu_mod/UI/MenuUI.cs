@@ -18,7 +18,7 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.7.1";
+        public const string Version = "1.8.0";
 
         // Saved by number, so new pages go at the end.
         private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits, Rendering, Fortune, Glitches, People }
@@ -39,13 +39,16 @@ namespace FlyMod.UI
         };
 
         // What the header search can jump to.
+        // Developer tools, hidden in public builds.
+        private static readonly string[] DevOnlySearch = { "List object names", "Lag spike recorder", "Crash dumps", "Game errors log" };
+
         private static readonly (string Label, Section Section)[] SearchIndex =
         {
             ("Fly", Section.Movement), ("Fly speed", Section.Movement), ("Unstick me", Section.Movement),
             ("Movement speed", Section.Movement), ("Knockback immunity", Section.Movement), ("Lock body rotation", Section.Movement),
             ("Field of view (FOV)", Section.Camera), ("Zoom-out limit", Section.Camera), ("Screenshot mode", Section.Camera),
-            ("Find objects (seashells, letters, flowers, keys)", Section.Teleports), ("List object names", Section.Teleports), ("Go to next item", Section.Teleports), ("Go to safe (Key Hunter)", Section.Teleports), ("NPCs / quest givers", Section.Teleports), ("Quest giver (Diego)", Section.Teleports), ("Quiz helper / quiz answers", Section.Teleports), ("Collected today", Section.Teleports), ("Waypoints", Section.Teleports), ("Teleport to a friend", Section.Teleports),
-            ("Free memory", Section.Performance), ("Auto-free RAM", Section.Performance), ("Hide player wings", Section.Performance),
+            ("Find objects (seashells, letters, flowers)", Section.Teleports), ("List object names", Section.Teleports), ("Go to next item", Section.Teleports), ("NPCs / quest givers", Section.Teleports), ("Quest giver (Diego)", Section.Teleports), ("Quiz helper / quiz answers", Section.Teleports), ("Collected today", Section.Teleports), ("Waypoints", Section.Teleports), ("Teleport to a friend", Section.Teleports),
+            ("Free memory", Section.Performance), ("Hide player wings", Section.Performance),
             ("Texture resolution", Section.Performance), ("Shadow distance", Section.Performance), ("LOD bias", Section.Performance),
             ("Performance profile (Quality, Balanced, Potato)", Section.Rendering), ("FPS benchmark", Section.Rendering),
             ("Friend arrival notices", Section.Teleports), ("Make crash report", Section.Crashes), ("Bug fixes / glitches", Section.Glitches), ("Lag spike recorder", Section.Glitches), ("People in this room", Section.People), ("Chat log / mention alerts", Section.People), ("Minimap", Section.Teleports), ("Back (undo teleport)", Section.Teleports), ("Name tags distance", Section.Rendering), ("Auto crowd mode", Section.Rendering),
@@ -72,7 +75,6 @@ namespace FlyMod.UI
             // FX_GiftboxAura is the glow the game puts around pickups; found
             // next to the flowers. No "rose": Rose_Podium_Book matched it.
             ("flowers", "GiftboxAura|flower|blossom|bloom|petal|hibiscus|plumeria|orchid|lotus|lily|tulip|daisy|sunflower"),
-            ("keys", "key"),
         };
 
         public bool Open { get; private set; }
@@ -330,7 +332,7 @@ namespace FlyMod.UI
             GUILayout.BeginVertical();
             GUILayout.Space(S.S(1));
             GUILayout.Label("LOVE MENU", S.Brand);
-            GUILayout.Label("v" + Version + " · by NNKtv28", S.BrandMeta);
+            GUILayout.Label("v" + Version + (BuildInfo.Dev ? " dev" : "") + " · by NNKtv28", S.BrandMeta);
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
             GUILayout.Space(S.S(18));
@@ -482,6 +484,8 @@ namespace FlyMod.UI
                 return results;
             foreach (var entry in SearchIndex)
             {
+                if (!BuildInfo.Dev && Array.IndexOf(DevOnlySearch, entry.Label) >= 0)
+                    continue;
                 if (entry.Label.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
                     results.Add(entry);
                 if (results.Count == 6)
@@ -1168,31 +1172,35 @@ namespace FlyMod.UI
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 GUILayout.Space(S.S(8));
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("Don't know what it's called?", S.Small);
-                GUILayout.Space(S.S(8));
-                if (Button("List names", new GUIStyle(S.Go) { fixedHeight = S.S(24) }))
+                // Finding what a new quest item is called (dev builds only).
+                if (BuildInfo.Dev)
                 {
-                    string names = _teleportController.DescribeRoomObjectNames();
-                    DebugLog.Info("Room object names (List names):\n" + names);
-                    GUIUtility.systemCopyBuffer = names;
-                    Toasts.Show("Object names copied and written to the log");
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("Don't know what it's called?", S.Small);
+                    GUILayout.Space(S.S(8));
+                    if (Button("List names", new GUIStyle(S.Go) { fixedHeight = S.S(24) }))
+                    {
+                        string names = _teleportController.DescribeRoomObjectNames();
+                        DebugLog.Info("Room object names (List names):\n" + names);
+                        GUIUtility.systemCopyBuffer = names;
+                        Toasts.Show("Object names copied and written to the log");
+                    }
+                    GUILayout.Space(S.S(6));
+                    if (Button("Near me", new GUIStyle(S.Go) { fixedHeight = S.S(24) }))
+                    {
+                        string names = _teleportController.DescribeObjectsNearPlayer(4f);
+                        DebugLog.Info("Objects within 4 m (Near me):\n" + names);
+                        GUIUtility.systemCopyBuffer = names;
+                        Toasts.Show("Names of everything within 4 m copied");
+                    }
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(10));
+                    ToggleRow(inner, "strict", "Exact names only", "Off also matches names that only contain the word.",
+                        _teleportController.StrictNames,
+                        () => { _teleportController.StrictNames = !_teleportController.StrictNames; _teleportController.RefreshNearbyCollectibles(); },
+                        titleStyle: S.BodyStrong);
                 }
-                GUILayout.Space(S.S(6));
-                if (Button("Near me", new GUIStyle(S.Go) { fixedHeight = S.S(24) }))
-                {
-                    string names = _teleportController.DescribeObjectsNearPlayer(4f);
-                    DebugLog.Info("Objects within 4 m (Near me):\n" + names);
-                    GUIUtility.systemCopyBuffer = names;
-                    Toasts.Show("Names of everything within 4 m copied");
-                }
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-                GUILayout.Space(S.S(10));
-                ToggleRow(inner, "strict", "Exact names only", "Off also matches names that only contain the word.",
-                    _teleportController.StrictNames,
-                    () => { _teleportController.StrictNames = !_teleportController.StrictNames; _teleportController.RefreshNearbyCollectibles(); },
-                    titleStyle: S.BodyStrong);
                 GUILayout.Space(S.S(12));
 
                 // Go to next: nearest match not visited yet. You pick it up
@@ -1204,19 +1212,6 @@ namespace FlyMod.UI
                 BeginCentered(S.Primary.fixedHeight, HotkeyStyle("nextpickup").fixedHeight);
                 HotkeyButton("nextpickup");
                 EndCentered();
-                // Key Hunter: carry up to 5 keys, then deposit them at the safe.
-                if (_teleportController.SearchingForKeys)
-                {
-                    GUILayout.Space(S.S(14));
-                    BeginCentered(S.Primary.fixedHeight, S.Secondary.fixedHeight);
-                    if (Button("Go to safe", S.Secondary))
-                        Later(() => Toasts.Show(_teleportController.GoToSafe()));
-                    EndCentered();
-                    GUILayout.Space(S.S(10));
-                    BeginCentered(S.Primary.fixedHeight, HotkeyStyle("gotosafe").fixedHeight);
-                    HotkeyButton("gotosafe");
-                    EndCentered();
-                }
                 GUILayout.FlexibleSpace();
                 // Picked-up items vanish from the room, so what's still found
                 // is what's left.
@@ -1225,6 +1220,7 @@ namespace FlyMod.UI
                     new GUIStyle(S.BodyStrong) { normal = { textColor = Theme.AccentText } }, S.Primary.fixedHeight);
                 GUILayout.EndHorizontal();
                 GUILayout.Space(S.S(10));
+
 
                 // Back to the NPC that gives and takes the collect quests.
                 GUILayout.BeginHorizontal();
@@ -1507,23 +1503,11 @@ namespace FlyMod.UI
                 if (Button("Free memory now", S.Primary))
                 {
                     _performanceController.FreeUnusedMemory();
-                    Toasts.Show(_performanceController.LastFreeResult);
                 }
                 GUILayout.Space(S.S(10));
                 CenteredLabel("short freeze, about 0.3 s", S.Small, S.Primary.fixedHeight);
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
-
-                GUILayout.Space(S.S(14));
-                Widgets.Divider(S);
-                GUILayout.Space(S.S(14));
-                ToggleRow(inner, "autofree", "Auto-free when RAM is high", "At most once every 90 s.",
-                    _performanceController.AutoFreeEnabled,
-                    () => { _performanceController.AutoFreeEnabled = !_performanceController.AutoFreeEnabled; Toggle("Auto-free", _performanceController.AutoFreeEnabled); },
-                    titleStyle: S.BodyStrong);
-                GUILayout.Space(S.S(12));
-                _performanceController.AutoFreeThresholdMB = SliderRow("Trigger above", _performanceController.AutoFreeThresholdMB.ToString("N0") + " MB",
-                    _performanceController.AutoFreeThresholdMB, 2000f, 12000f, 500f);
             }), column =>
             {
                 Card(column, inner =>
@@ -1786,7 +1770,8 @@ namespace FlyMod.UI
                 GUILayout.EndHorizontal();
             });
 
-            Card(width, DrawLagRecorderCard);
+            if (BuildInfo.Dev)
+                Card(width, DrawLagRecorderCard);
         }
 
         // Rendering -------------------------------------------------------------
@@ -1971,43 +1956,50 @@ namespace FlyMod.UI
                 GUILayout.Label(watchdogText, S.Description, GUILayout.Width(textWidth));
                 GUILayout.EndVertical();
                 GUILayout.FlexibleSpace();
-                BeginCentered(blockHeight, S.Secondary.fixedHeight);
-                if (Button("Open dumps folder", S.Secondary))
-                    OpenCrashDumpFolder();
-                EndCentered();
+                if (BuildInfo.Dev)
+                {
+                    BeginCentered(blockHeight, S.Secondary.fixedHeight);
+                    if (Button("Open dumps folder", S.Secondary))
+                        OpenCrashDumpFolder();
+                    EndCentered();
+                }
                 GUILayout.EndHorizontal();
-                GUILayout.Space(S.S(14));
-                Widgets.Divider(S);
-                GUILayout.Space(S.S(14));
-                ToggleRow(inner, "verbose", "Detailed logging",
-                    "Writes extra detail to the log (windows, popups, knockback). Turn it on when reporting a bug, off otherwise.",
-                    DebugLog.Verbose, () => { DebugLog.Verbose = !DebugLog.Verbose; Toggle("Detailed logging", DebugLog.Verbose); },
-                    titleStyle: S.BodyStrong);
-                GUILayout.Space(S.S(14));
-                string captured = WorldScriptCapture.Enabled
-                    ? " Saved so far: " + WorldScriptCapture.ScriptsSaved + " scripts, " + WorldScriptCapture.MessagesSaved +
-                      " messages (seen since start: " + WorldScriptCapture.ScriptsSeen + " / " + WorldScriptCapture.MessagesSeen + ")."
-                    : "";
-                ToggleRow(inner, "capture", "Capture world scripts",
-                    "For developers: saves the world scripts the game downloads (quests, quizzes) and the server's messages to them, to BepInEx\\LoveMenu\\captured-scripts. Off after a restart." + captured,
-                    WorldScriptCapture.Enabled, () => { WorldScriptCapture.Enabled = !WorldScriptCapture.Enabled; Toggle("Script capture", WorldScriptCapture.Enabled); },
-                    titleStyle: S.BodyStrong);
-                GUILayout.Space(S.S(14));
-                Widgets.Divider(S);
-                GUILayout.Space(S.S(14));
-                GUILayout.BeginHorizontal();
-                GUILayout.BeginVertical(GUILayout.Width(textWidth));
-                GUILayout.Label("Game errors", S.BodyStrong);
-                GUILayout.Space(S.S(3));
-                GUILayout.Label(ErrorLogger.Total == 0
-                        ? "No errors from the game this session. Any that happen are collected in BepInEx\\LoveMenu\\errors.log."
-                        : ErrorLogger.Total + " errors this session, " + ErrorLogger.Distinct + " different ones. Collected in errors.log, with a count of each in errors-summary.txt.",
-                    S.Description, GUILayout.Width(textWidth));
-                GUILayout.EndVertical();
-                GUILayout.FlexibleSpace();
-                if (Button("Open errors folder", S.Secondary))
-                    ErrorLogger.OpenFolder();
-                GUILayout.EndHorizontal();
+                // Developer tools (dev builds only).
+                if (BuildInfo.Dev)
+                {
+                    GUILayout.Space(S.S(14));
+                    Widgets.Divider(S);
+                    GUILayout.Space(S.S(14));
+                    ToggleRow(inner, "verbose", "Detailed logging",
+                        "Writes extra detail to the log (windows, popups, knockback). Turn it on when reporting a bug, off otherwise.",
+                        DebugLog.Verbose, () => { DebugLog.Verbose = !DebugLog.Verbose; Toggle("Detailed logging", DebugLog.Verbose); },
+                        titleStyle: S.BodyStrong);
+                    GUILayout.Space(S.S(14));
+                    string captured = WorldScriptCapture.Enabled
+                        ? " Saved so far: " + WorldScriptCapture.ScriptsSaved + " scripts, " + WorldScriptCapture.MessagesSaved +
+                          " messages (seen since start: " + WorldScriptCapture.ScriptsSeen + " / " + WorldScriptCapture.MessagesSeen + ")."
+                        : "";
+                    ToggleRow(inner, "capture", "Capture world scripts",
+                        "For developers: saves the world scripts the game downloads (quests, quizzes) and the server's messages to them, to BepInEx\\LoveMenu\\captured-scripts. Off after a restart." + captured,
+                        WorldScriptCapture.Enabled, () => { WorldScriptCapture.Enabled = !WorldScriptCapture.Enabled; Toggle("Script capture", WorldScriptCapture.Enabled); },
+                        titleStyle: S.BodyStrong);
+                    GUILayout.Space(S.S(14));
+                    Widgets.Divider(S);
+                    GUILayout.Space(S.S(14));
+                    GUILayout.BeginHorizontal();
+                    GUILayout.BeginVertical(GUILayout.Width(textWidth));
+                    GUILayout.Label("Game errors", S.BodyStrong);
+                    GUILayout.Space(S.S(3));
+                    GUILayout.Label(ErrorLogger.Total == 0
+                            ? "No errors from the game this session. Any that happen are collected in BepInEx\\LoveMenu\\errors.log."
+                            : ErrorLogger.Total + " errors this session, " + ErrorLogger.Distinct + " different ones. Collected in errors.log, with a count of each in errors-summary.txt.",
+                        S.Description, GUILayout.Width(textWidth));
+                    GUILayout.EndVertical();
+                    GUILayout.FlexibleSpace();
+                    if (Button("Open errors folder", S.Secondary))
+                        ErrorLogger.OpenFolder();
+                    GUILayout.EndHorizontal();
+                }
                 GUILayout.Space(S.S(14));
                 Widgets.Divider(S);
                 GUILayout.Space(S.S(14));
@@ -2037,32 +2029,12 @@ namespace FlyMod.UI
                 GUILayout.EndHorizontal();
             });
 
-            Columns(width, column => Card(column, inner =>
-            {
-                GUILayout.Label("Fixed crashes", S.CardTitle);
-                GUILayout.Space(S.S(12));
-                var fixes = _crashWorkaroundController.ConfirmedFixes;
-                if (fixes.Count == 0)
-                    EmptyState("No confirmed crash causes yet.");
-                for (int i = 0; i < fixes.Count; i++)
-                {
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label("FIXED", S.BadgeSuccess);
-                    GUILayout.Space(S.S(8));
-                    GUILayout.Label(fixes[i].Name, S.BodyStrong);
-                    GUILayout.FlexibleSpace();
-                    GUILayout.EndHorizontal();
-                    GUILayout.Space(S.S(4));
-                    GUILayout.Label(fixes[i].Description, S.Description, GUILayout.Width(inner));
-                    if (i < fixes.Count - 1)
-                        GUILayout.Space(S.S(14));
-                }
-            }), column => Card(column, inner =>
+            Card(width, inner =>
             {
                 GUILayout.Label("Experimental workarounds", S.CardTitle);
                 GUILayout.Space(S.S(12));
                 WorkaroundRows(inner, "workaround-", WorkaroundPage.Crashes);
-            }));
+            });
         }
 
         private void OpenCrashDumpFolder()

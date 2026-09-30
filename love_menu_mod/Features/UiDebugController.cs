@@ -50,6 +50,11 @@ namespace FlyMod.Features
             ReadMovementState();
             LogMovementStateIfChanged();
 
+            // The window/webview scans search the whole scene (40 ms a second
+            // in a crowd, lag.log) and only write to the detailed log, so
+            // they run only while Detailed logging is on.
+            if (!DebugLog.Verbose)
+                return;
             _timeSinceLastScan += deltaTime;
             if (_timeSinceLastScan < ScanIntervalSeconds)
                 return;
@@ -65,7 +70,7 @@ namespace FlyMod.Features
         // an auto-hide should actually target.
         private void LogAnyNewWindows()
         {
-            foreach (GUIBaseWindow window in UnityEngine.Object.FindObjectsOfType<GUIBaseWindow>())
+            foreach (GUIBaseWindow window in UnityEngine.Object.FindObjectsByType<GUIBaseWindow>(UnityEngine.FindObjectsSortMode.None))
             {
                 try
                 {
@@ -117,7 +122,7 @@ namespace FlyMod.Features
 
         private void HookAnyNewWebViews()
         {
-            foreach (GUIWebView webView in UnityEngine.Object.FindObjectsOfType<GUIWebView>())
+            foreach (GUIWebView webView in UnityEngine.Object.FindObjectsByType<GUIWebView>(UnityEngine.FindObjectsSortMode.None))
             {
                 try
                 {

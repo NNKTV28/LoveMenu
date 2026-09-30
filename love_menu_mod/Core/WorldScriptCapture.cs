@@ -150,8 +150,16 @@ namespace FlyMod.Core
 
         private static void Prefix(ref string script, string source)
         {
-            WorldScriptCapture.SaveScript(script, source);
-            FlyMod.Features.ScriptFixes.Apply(ref script, source);
+            string phase = FlyMod.Features.LagRecorder.Enter("script loading");
+            try
+            {
+                WorldScriptCapture.SaveScript(script, source);
+                FlyMod.Features.ScriptFixes.Apply(ref script, source);
+            }
+            finally
+            {
+                FlyMod.Features.LagRecorder.Leave(phase);
+            }
         }
     }
 
@@ -164,9 +172,17 @@ namespace FlyMod.Core
 
         private static void Prefix(object scriptEvent)
         {
-            WorldScriptCapture.SaveMessage(scriptEvent);
-            FlyMod.Features.QuizHelper.OnScriptEvent(scriptEvent);
-            FlyMod.Features.FortuneTracker.Instance.OnScriptEvent(scriptEvent);
+            string phase = FlyMod.Features.LagRecorder.Enter("script messages");
+            try
+            {
+                WorldScriptCapture.SaveMessage(scriptEvent);
+                FlyMod.Features.QuizHelper.OnScriptEvent(scriptEvent);
+                FlyMod.Features.FortuneTracker.Instance.OnScriptEvent(scriptEvent);
+            }
+            finally
+            {
+                FlyMod.Features.LagRecorder.Leave(phase);
+            }
         }
     }
 }

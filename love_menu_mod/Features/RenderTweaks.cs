@@ -66,7 +66,7 @@ namespace FlyMod.Features
             }
             // Rescanned, because lights load later and the server can
             // switch a light's shadows back on.
-            foreach (Light light in Object.FindObjectsOfType<Light>())
+            foreach (Light light in Object.FindObjectsByType<Light>(UnityEngine.FindObjectsSortMode.None))
             {
                 if (light.type == LightType.Directional || light.shadows == LightShadows.None)
                     continue;

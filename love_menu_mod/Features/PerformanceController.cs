@@ -3,6 +3,7 @@ using System.Reflection;
 using BepInEx.Logging;
 using UnityEngine;
 using FlyMod.Core;
+using FlyMod.UI;
 
 namespace FlyMod.Features
 {
@@ -49,6 +50,10 @@ namespace FlyMod.Features
             _systemStats = systemStats;
         }
 
+        // Automatic freeing is off for good: in both freezes looked at (30 Sep
+        // and 1 Oct) it had run shortly before, it froze the game for
+        // 300-500 ms each time and freed nothing while in a crowded room.
+        // Only the manual button remains.
         public void Tick(float deltaTime)
         {
             _secondsSinceLastAutoFree += deltaTime;
@@ -83,24 +88,26 @@ namespace FlyMod.Features
             long beforeBytes = _systemStats.WorkingSetBytes();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            // No GC.WaitForPendingFinalizers here: blocking the main thread on
-            // the finalizer thread can deadlock the game if a finalizer needs
-            // the main thread - a freeze with 0% CPU, as seen right after an
-            // auto-free on 30 Sep.
-            Resources.UnloadUnusedAssets();
-            GC.Collect();
-
-            stopwatch.Stop();
-            long afterBytes = _systemStats.WorkingSetBytes();
-            float freedMB = SystemStatsController.BytesToMB(beforeBytes - afterBytes);
-
-            LastFreeResult = freedMB >= 0f
-                ? "freed " + freedMB.ToString("0") + " MB in " + stopwatch.ElapsedMilliseconds + " ms"
-                : "no drop yet (" + stopwatch.ElapsedMilliseconds + " ms)";
-            _log.LogInfo("[performance] UnloadUnusedAssets: " + LastFreeResult +
-                " | before=" + SystemStatsController.BytesToMB(beforeBytes).ToString("0") + "MB" +
-                " after=" + SystemStatsController.BytesToMB(afterBytes).ToString("0") + "MB");
-            return freedMB;
+            // UnloadUnusedAssets runs its own garbage collection and finishes
+            // over the next frames, so the result is measured when it's done
+            // (no extra GC.Collect or waiting on finalizers - both can stall
+            // the main thread).
+            LastFreeResult = "freeing...";
+            AsyncOperation unload = Resources.UnloadUnusedAssets();
+            unload.completed += _ =>
+            {
+                stopwatch.Stop();
+                long afterBytes = _systemStats.WorkingSetBytes();
+                float freedMB = SystemStatsController.BytesToMB(beforeBytes - afterBytes);
+                LastFreeResult = freedMB > 0f
+                    ? "freed " + freedMB.ToString("0") + " MB in " + stopwatch.ElapsedMilliseconds + " ms"
+                    : "nothing to free (" + stopwatch.ElapsedMilliseconds + " ms)";
+                _log.LogInfo("[performance] UnloadUnusedAssets: " + LastFreeResult +
+                    " | before=" + SystemStatsController.BytesToMB(beforeBytes).ToString("0") + "MB" +
+                    " after=" + SystemStatsController.BytesToMB(afterBytes).ToString("0") + "MB");
+                Toasts.Show(LastFreeResult);
+            };
+            return 0f;
         }
 
         // 0 = full resolution, 1 = half, 2 = quarter. Dropping a step is the

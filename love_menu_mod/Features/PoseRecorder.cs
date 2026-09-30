@@ -61,7 +61,7 @@ namespace FlyMod.Features
         {
             DOMControllerLink best = null;
             float bestDistance = float.MaxValue;
-            foreach (DOMControllerLink other in UnityEngine.Object.FindObjectsOfType<DOMControllerLink>())
+            foreach (DOMControllerLink other in UnityEngine.Object.FindObjectsByType<DOMControllerLink>(UnityEngine.FindObjectsSortMode.None))
             {
                 if (other == null || other == me || !other.IsPersona)
                     continue;

@@ -48,7 +48,7 @@ namespace FlyMod.Core
         private void ResolveAvatarIfNeeded()
         {
             if (Avatar == null)
-                Avatar = UnityEngine.Object.FindObjectOfType<AvControl>();
+                Avatar = UnityEngine.Object.FindFirstObjectByType<AvControl>();
         }
 
         // The avatar's GameObject is just called "_Self", so the name comes
