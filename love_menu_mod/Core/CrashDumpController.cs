@@ -124,6 +124,7 @@ namespace FlyMod.Core
                 return;
 
             _dumpWritten = true; // one dump per session - a stuck process won't recover to reset this anyway
+            FlyMod.Features.GraphicsApiSetting.NoteHang();
             WriteMiniDump();
         }
 

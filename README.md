@@ -14,11 +14,18 @@ client by The Virtual World Web Inc.). Press **F7** in game to open it.
 - **Camera:** field of view, zoom-out limit, screenshot mode that hides the HUD.
 - **Teleports:** find quest items (keys, seashells, letters, flowers) and walk
   through them one by one, go to the safe or the quest NPC, waypoints,
-  teleport to friends and NPCs, notices when friends arrive.
+  teleport to friends and NPCs, a Back button, and a minimap you can click to
+  teleport.
+- **People:** everyone in the room with clan and distance, show only the
+  people you pick, notices when friends arrive, chat log with mention alerts.
+- **Bug fixes:** fixes for the game's own bugs - items that won't come off,
+  couples posing inside each other, chat channels on top of each other, chat
+  links that don't open - plus a lag spike recorder.
 - **Quests:** quiz helper marks the right answer in green, log of what you
   collected today, Kiss of Fortune free-opening timer.
 - **Performance:** one-click profiles (Quality, Balanced, Potato), show only
-  your clan or friends in packed rooms, smoother loading when people join,
+  your clan or friends in packed rooms, auto crowd mode, name tag distance,
+  smoother loading when people join,
   cheaper mirrors, lamp shadows and reflections, DirectX 12 / Vulkan option,
   built-in FPS benchmark, free memory, hide wings, FPS/RAM overlay.
 - **Stability:** fixes for game load errors, an error log of everything the

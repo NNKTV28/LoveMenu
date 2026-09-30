@@ -27,6 +27,63 @@ namespace FlyMod.UI
         public static Texture2D Heart => GetOrBuild("heart", BuildHeart);
         public static Texture2D Download => GetOrBuild("download", BuildDownload);
         public static Texture2D Eye => GetOrBuild("eye", BuildEye);
+        public static Texture2D Bug => GetOrBuild("bug", BuildBug);
+        public static Texture2D Arrow => GetOrBuild("arrow", BuildArrow);
+        public static Texture2D Map => GetOrBuild("map", BuildMap);
+
+        public static Texture2D People => GetOrBuild("people", BuildPeople);
+
+        // Two heads and shoulders.
+        private static void BuildPeople(IconCanvas c)
+        {
+            c.Circle(12, 11, 4f);
+            c.Line(4, 26, 6, 19);
+            c.Line(6, 19, 18, 19);
+            c.Line(18, 19, 20, 26);
+            c.Circle(22, 9, 3.5f);
+            c.Line(22, 16, 27, 16);
+            c.Line(27, 16, 29, 23);
+        }
+
+        // Pointing up: a chevron with a short tail.
+        private static void BuildArrow(IconCanvas c)
+        {
+            c.Line(16, 4, 6, 26);
+            c.Line(16, 4, 26, 26);
+            c.Line(6, 26, 16, 20);
+            c.Line(26, 26, 16, 20);
+        }
+
+        // A folded map.
+        private static void BuildMap(IconCanvas c)
+        {
+            c.Line(4, 8, 12, 5);
+            c.Line(12, 5, 20, 8);
+            c.Line(20, 8, 28, 5);
+            c.Line(4, 27, 12, 24);
+            c.Line(12, 24, 20, 27);
+            c.Line(20, 27, 28, 24);
+            c.Line(4, 8, 4, 27);
+            c.Line(12, 5, 12, 24);
+            c.Line(20, 8, 20, 27);
+            c.Line(28, 5, 28, 24);
+        }
+
+        // Round body, head, three legs each side, two feelers.
+        private static void BuildBug(IconCanvas c)
+        {
+            c.Circle(16, 18, 7f);
+            c.Circle(16, 9, 3f);
+            c.Line(16, 12, 16, 25);
+            c.Line(9, 14, 4, 11);
+            c.Line(23, 14, 28, 11);
+            c.Line(9, 19, 4, 19);
+            c.Line(23, 19, 28, 19);
+            c.Line(10, 23, 5, 27);
+            c.Line(22, 23, 27, 27);
+            c.Line(14, 6, 11, 3);
+            c.Line(18, 6, 21, 3);
+        }
 
         private static void BuildCamera(IconCanvas c)
         {

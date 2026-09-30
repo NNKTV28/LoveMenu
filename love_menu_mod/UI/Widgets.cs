@@ -136,6 +136,16 @@ namespace FlyMod.UI
             GUI.color = previous;
         }
 
+        public static void FillCircle(MenuStyles styles, Rect rect, Color color)
+        {
+            if (Event.current.type != EventType.Repaint)
+                return;
+            Color previous = GUI.color;
+            GUI.color = color * previous;
+            GUI.DrawTexture(rect, styles.Circle);
+            GUI.color = previous;
+        }
+
         // A horizontal bar filled to t (0..1).
         public static void Bar(MenuStyles styles, float t, Color color)
         {

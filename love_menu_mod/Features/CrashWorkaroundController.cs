@@ -8,14 +8,18 @@ namespace FlyMod.Features
     // Unity player log (see LoveMenuLauncher), not guessed. Empty until a
     // real one turns up; the Crashes tab shows an honest "none identified
     // yet" message rather than fabricated toggles.
+    internal enum WorkaroundPage { Crashes, Rendering, Glitches }
+
     internal class CrashWorkaround
     {
         public string Id;               // stable, for performance profiles
         public string Name;
         public string Description;
         public bool Enabled;
-        // Shown on the Rendering page instead of the Crashes page.
-        public bool OnRenderingPage;
+        // Confirmed fixes: on unless the player turned them off.
+        public bool OnByDefault;
+        // Which page shows the switch: Crashes, Rendering or Glitches.
+        public WorkaroundPage Page = WorkaroundPage.Crashes;
         public Action<bool> OnToggle;
     }
 

@@ -662,11 +662,17 @@ namespace LoveMenuLauncher
                     arguments += " -force-gfx-jobs native";
 
                 string last = File.Exists(lastPath) ? File.ReadAllText(lastPath).Trim() : "";
-                bool lastRunFailed = last.Length > 0 && last == arguments && !File.Exists(okPath);
+                string hangPath = Path.Combine(folder, "graphics-hang.txt");
+                bool froze = File.Exists(hangPath);
+                if (froze)
+                    File.Delete(hangPath);
+                bool lastRunFailed = last.Length > 0 && last == arguments && (!File.Exists(okPath) || froze);
                 if (arguments.Length > 0 && lastRunFailed)
                 {
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("The game didn't run a full minute last time with " + arguments + ".");
+                    Console.WriteLine(froze
+                        ? "The game froze last time with " + arguments + "."
+                        : "The game didn't run a full minute last time with " + arguments + ".");
                     Console.WriteLine("Going back to DirectX 11. You can try again from the menu's Rendering page.");
                     Console.ResetColor();
                     File.WriteAllText(settingsPath, "api=d3d11\r\ngfxjobs=default\r\n");

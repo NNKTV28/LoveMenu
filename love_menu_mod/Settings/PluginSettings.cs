@@ -44,7 +44,7 @@ namespace FlyMod.Settings
         private ConfigEntry<float> _flySpeedEntry, _speedMultiplierEntry, _transparencyEntry, _uiScaleEntry, _fovEntry;
         private ConfigEntry<float> _autoFreeThresholdEntry, _shadowDistanceEntry, _lodBiasEntry, _windowXEntry, _windowYEntry;
         private ConfigEntry<int> _themeIndexEntry, _overlayCornerEntry, _textureLimitEntry, _sectionEntry;
-        private ConfigEntry<string> _waypointsEntry, _crashWorkaroundsEntry, _featureHotkeysEntry, _dismissedUpdateEntry;
+        private ConfigEntry<string> _waypointsEntry, _crashWorkaroundsEntry, _disabledWorkaroundsEntry, _featureHotkeysEntry, _dismissedUpdateEntry;
         private ConfigEntry<bool> _knockbackImmunityEnabledEntry, _bodyRotationLockEnabledEntry, _hidePromoPopupsEntry;
         private ConfigEntry<bool> _autoScaleEntry, _hideAvatarInScreenshotsEntry, _autoFreeEntry, _hideWingsEntry;
         private ConfigEntry<bool> _overlayEnabledEntry, _overlayFpsEntry, _overlayRamEntry, _overlayActiveEntry;
@@ -52,6 +52,9 @@ namespace FlyMod.Settings
         private ConfigEntry<int> _showPeopleEntry;
         private ConfigEntry<string> _fortuneBallsEntry;
         private ConfigEntry<bool> _fortuneNotifyEntry, _friendNoticesEntry, _friendLeftNoticesEntry;
+        private ConfigEntry<bool> _mapEnabledEntry, _mapTurnEntry, _mapPictureEntry, _mapClickEntry, _autoCrowdEntry, _chatSaveEntry, _chatMentionEntry;
+        private ConfigEntry<int> _mapCornerEntry, _mapRangeEntry, _nameTagEntry;
+        private ConfigEntry<string> _chatWordsEntry;
 
         public PluginSettings(ConfigFile configFile, Keybinds keybinds, FeatureHotkeys hotkeys, FlyController flyController,
             SpeedBoostController speedBoostController, TeleportController teleportController,
@@ -118,6 +121,7 @@ namespace FlyMod.Settings
             _overlayActiveEntry = _configFile.Bind("Overlay", "ShowActiveFeatures", false);
             _waypointsEntry = _configFile.Bind("Teleports", "Waypoints", "");
             _crashWorkaroundsEntry = _configFile.Bind("Crashes", "EnabledWorkarounds", "");
+            _disabledWorkaroundsEntry = _configFile.Bind("Crashes", "DisabledWorkarounds", "");
             _detailedLoggingEntry = _configFile.Bind("Crashes", "DetailedLogging", false);
             _quizHelperEntry = _configFile.Bind("Teleports", "QuizHelper", true);
             _showPeopleEntry = _configFile.Bind("Rendering", "ShowPeople", 0);
@@ -125,6 +129,17 @@ namespace FlyMod.Settings
             _fortuneNotifyEntry = _configFile.Bind("Fortune", "NotifyWhenFree", true);
             _friendNoticesEntry = _configFile.Bind("Teleports", "FriendArrivalNotices", true);
             _friendLeftNoticesEntry = _configFile.Bind("Teleports", "FriendLeftNotices", false);
+            _mapEnabledEntry = _configFile.Bind("Minimap", "Enabled", false);
+            _mapCornerEntry = _configFile.Bind("Minimap", "Corner", (int)Minimap.Corner.TopRight);
+            _mapRangeEntry = _configFile.Bind("Minimap", "Range", 1);
+            _mapTurnEntry = _configFile.Bind("Minimap", "TurnWithCamera", true);
+            _mapPictureEntry = _configFile.Bind("Minimap", "ShowPicture", true);
+            _mapClickEntry = _configFile.Bind("Minimap", "ClickToTeleport", true);
+            _nameTagEntry = _configFile.Bind("Rendering", "NameTagDistance", 0);
+            _autoCrowdEntry = _configFile.Bind("Rendering", "AutoCrowdMode", false);
+            _chatSaveEntry = _configFile.Bind("Chat", "SaveChatLog", true);
+            _chatMentionEntry = _configFile.Bind("Chat", "MentionAlerts", true);
+            _chatWordsEntry = _configFile.Bind("Chat", "MentionWords", "");
             _dismissedUpdateEntry = _configFile.Bind("Updates", "DismissedVersion", "");
             RemoveChatSettingsFromOlderVersions();
         }
@@ -182,11 +197,22 @@ namespace FlyMod.Settings
             _menuUI.DismissedUpdateVersion = _dismissedUpdateEntry.Value;
             DebugLog.Verbose = _detailedLoggingEntry.Value;
             QuizHelper.Enabled = _quizHelperEntry.Value;
-            PeopleFilter.Instance.Current = (PeopleFilter.Mode)Mathf.Clamp(_showPeopleEntry.Value, 0, 2);
+            PeopleFilter.Instance.Current = (PeopleFilter.Mode)Mathf.Clamp(_showPeopleEntry.Value, 0, 2);   // Picked isn't kept: its picks are per session
             FortuneTracker.Instance.Decode(_fortuneBallsEntry.Value);
             FortuneTracker.Instance.NotifyWhenFree = _fortuneNotifyEntry.Value;
             FriendNotifier.Instance.Enabled = _friendNoticesEntry.Value;
             FriendNotifier.Instance.NotifyLeaving = _friendLeftNoticesEntry.Value;
+            Minimap.Instance.Enabled = _mapEnabledEntry.Value;
+            Minimap.Instance.Position = (Minimap.Corner)Mathf.Clamp(_mapCornerEntry.Value, 0, 3);
+            Minimap.Instance.RangeIndex = Mathf.Clamp(_mapRangeEntry.Value, 0, Minimap.Ranges.Length - 1);
+            Minimap.Instance.TurnWithCamera = _mapTurnEntry.Value;
+            Minimap.Instance.ShowPicture = _mapPictureEntry.Value;
+            Minimap.Instance.ClickToTeleport = _mapClickEntry.Value;
+            NameTagDistance.Instance.Choice = _nameTagEntry.Value;
+            AutoCrowd.Instance.Enabled = _autoCrowdEntry.Value;
+            ChatLog.Instance.SaveToFile = _chatSaveEntry.Value;
+            ChatLog.Instance.MentionAlerts = _chatMentionEntry.Value;
+            ChatLog.Instance.ExtraWords = _chatWordsEntry.Value;
 
             _teleportController.DecodeWaypoints(_waypointsEntry.Value);
 
@@ -199,7 +225,12 @@ namespace FlyMod.Settings
             // workaround added after this was last saved.
             string[] enabledNames = _crashWorkaroundsEntry.Value.Split(';');
             foreach (CrashWorkaround workaround in _crashWorkaroundController.Workarounds)
-                _crashWorkaroundController.SetEnabled(workaround, enabledNames.Contains(workaround.Name));
+            {
+                // Confirmed fixes are on unless the player switched them off.
+                bool on = enabledNames.Contains(workaround.Name) ||
+                    (workaround.OnByDefault && !_disabledWorkaroundsEntry.Value.Split(';').Contains(workaround.Name));
+                _crashWorkaroundController.SetEnabled(workaround, on);
+            }
         }
 
         // Settings > Reset all settings. Waypoints are the player's own data,
@@ -225,7 +256,7 @@ namespace FlyMod.Settings
             _transparencyEntry, _autoScaleEntry, _uiScaleEntry, _themeIndexEntry, _hidePromoPopupsEntry,
             _windowXEntry, _windowYEntry, _sectionEntry, _welcomeSeenEntry,
             _overlayEnabledEntry, _overlayCornerEntry, _overlayFpsEntry, _overlayRamEntry, _overlayActiveEntry,
-            _waypointsEntry, _crashWorkaroundsEntry, _detailedLoggingEntry, _quizHelperEntry, _showPeopleEntry, _fortuneNotifyEntry, _friendNoticesEntry, _friendLeftNoticesEntry, _dismissedUpdateEntry,
+            _waypointsEntry, _crashWorkaroundsEntry, _disabledWorkaroundsEntry, _detailedLoggingEntry, _quizHelperEntry, _showPeopleEntry, _fortuneNotifyEntry, _friendNoticesEntry, _friendLeftNoticesEntry, _mapEnabledEntry, _mapCornerEntry, _mapRangeEntry, _mapTurnEntry, _mapPictureEntry, _mapClickEntry, _nameTagEntry, _autoCrowdEntry, _chatSaveEntry, _chatMentionEntry, _dismissedUpdateEntry,
         };
 
         public void Save()
@@ -270,10 +301,21 @@ namespace FlyMod.Settings
             _dismissedUpdateEntry.Value = _menuUI.DismissedUpdateVersion;
             _detailedLoggingEntry.Value = DebugLog.Verbose;
             _quizHelperEntry.Value = QuizHelper.Enabled;
-            _showPeopleEntry.Value = (int)PeopleFilter.Instance.Current;
+            _showPeopleEntry.Value = PeopleFilter.Instance.Current == PeopleFilter.Mode.Picked ? 0 : (int)PeopleFilter.Instance.Current;
             _fortuneNotifyEntry.Value = FortuneTracker.Instance.NotifyWhenFree;
             _friendNoticesEntry.Value = FriendNotifier.Instance.Enabled;
             _friendLeftNoticesEntry.Value = FriendNotifier.Instance.NotifyLeaving;
+            _mapEnabledEntry.Value = Minimap.Instance.Enabled;
+            _mapCornerEntry.Value = (int)Minimap.Instance.Position;
+            _mapRangeEntry.Value = Minimap.Instance.RangeIndex;
+            _mapTurnEntry.Value = Minimap.Instance.TurnWithCamera;
+            _mapPictureEntry.Value = Minimap.Instance.ShowPicture;
+            _mapClickEntry.Value = Minimap.Instance.ClickToTeleport;
+            _nameTagEntry.Value = NameTagDistance.Instance.Choice;
+            _autoCrowdEntry.Value = AutoCrowd.Instance.Enabled;
+            _chatSaveEntry.Value = ChatLog.Instance.SaveToFile;
+            _chatMentionEntry.Value = ChatLog.Instance.MentionAlerts;
+            _chatWordsEntry.Value = ChatLog.Instance.ExtraWords;
             if (FortuneTracker.Instance.Changed)
             {
                 FortuneTracker.Instance.Changed = false;
@@ -284,6 +326,8 @@ namespace FlyMod.Settings
             _bodyRotationLockEnabledEntry.Value = _bodyRotationLockController.Enabled;
             _crashWorkaroundsEntry.Value = string.Join(";",
                 _crashWorkaroundController.Workarounds.Where(w => w.Enabled).Select(w => w.Name));
+            _disabledWorkaroundsEntry.Value = string.Join(";",
+                _crashWorkaroundController.Workarounds.Where(w => w.OnByDefault && !w.Enabled).Select(w => w.Name));
             _hidePromoPopupsEntry.Value = _promoPopupController.Enabled;
         }
     }

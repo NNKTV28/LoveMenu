@@ -7,8 +7,22 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <ApplicationIcon>app_icon.ico</ApplicationIcon>
-    <Version>1.6.0</Version>
+    <Version>1.7.0</Version>
+    <!-- Shown in the exe's Properties > Details. -->
+    <Product>Love Menu</Product>
+    <AssemblyTitle>Love Menu Launcher</AssemblyTitle>
+    <Description>Installs and starts the Love Menu mod menu for Lovecraft.</Description>
+    <Company>NNKtv28</Company>
+    <Authors>NNKtv28</Authors>
+    <Copyright>Copyright © 2026 NNKtv28 - MIT License</Copyright>
   </PropertyGroup>
+
+  <!-- Code signing, once a code-signing certificate is installed: set
+       LOVEMENU_SIGN_THUMBPRINT to its thumbprint and every Release build is
+       signed and timestamped. Without it, nothing changes. -->
+  <Target Name="SignLauncher" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(LOVEMENU_SIGN_THUMBPRINT)' != ''">
+    <Exec Command="signtool sign /sha1 $(LOVEMENU_SIGN_THUMBPRINT) /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d &quot;Love Menu&quot; &quot;$(TargetPath)&quot;" />
+  </Target>
 
   <!-- The launcher installs the plugin itself, so the plugin DLL is
        embedded. Build ../FlyMod.csproj (Release) first. -->

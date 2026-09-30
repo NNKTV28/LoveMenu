@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -27,7 +28,26 @@ namespace FlyMod.Core
                 DebugLog.Info("World script capture " + (value ? "ON" : "OFF") + " (script hook " +
                     (ScriptHookAttached ? "attached" : "NOT attached") + ", message hook " +
                     (MessageHookAttached ? "attached" : "NOT attached") + "), saving to " + Folder);
+                if (value)
+                    SaveEverythingSeen();
             }
+        }
+
+        // Scripts from packages (the poses window, action menu, chat...) load
+        // once at login, long before anyone can switch capture on. Every
+        // script's text is kept in memory (the latest per source, a few MB),
+        // so switching capture on saves those too.
+        private static readonly Dictionary<string, string> Seen = new Dictionary<string, string>();
+        private static readonly object SeenLock = new object();
+
+        private static void SaveEverythingSeen()
+        {
+            List<KeyValuePair<string, string>> all;
+            lock (SeenLock)
+                all = new List<KeyValuePair<string, string>>(Seen);
+            foreach (var script in all)
+                Write(script.Value, script.Key);
+            DebugLog.Info("World script capture: saved " + all.Count + " scripts loaded before capture was on");
         }
         public static bool ScriptHookAttached, MessageHookAttached;
         public static int ScriptsSeen, MessagesSeen;
@@ -40,7 +60,17 @@ namespace FlyMod.Core
         public static void SaveScript(string code, string source)
         {
             ScriptsSeen++;
-            if (!Enabled || string.IsNullOrEmpty(code) || Folder == null)
+            if (string.IsNullOrEmpty(code))
+                return;
+            lock (SeenLock)
+                Seen[source ?? "script"] = code;
+            if (Enabled)
+                Write(code, source);
+        }
+
+        private static void Write(string code, string source)
+        {
+            if (Folder == null)
                 return;
             try
             {
@@ -118,7 +148,11 @@ namespace FlyMod.Core
 
         private static MethodBase TargetMethod() => Target();
 
-        private static void Prefix(string script, string source) => WorldScriptCapture.SaveScript(script, source);
+        private static void Prefix(ref string script, string source)
+        {
+            WorldScriptCapture.SaveScript(script, source);
+            FlyMod.Features.ScriptFixes.Apply(ref script, source);
+        }
     }
 
     // Server messages to running world scripts.

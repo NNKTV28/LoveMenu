@@ -25,9 +25,9 @@ namespace FlyMod.Features
     // tag, compared with the line on your own avatar.
     internal class PeopleFilter
     {
-        public enum Mode { Everyone, Clan, Friends }
+        public enum Mode { Everyone, Clan, Friends, Picked }
         public static readonly PeopleFilter Instance = new PeopleFilter();
-        public static readonly string[] Names = { "Everyone", "My clan", "Friends" };
+        public static readonly string[] Names = { "Everyone", "My clan", "Friends", "Picked" };
 
         private const float ScanSeconds = 1f;
         private const float FriendsRefreshSeconds = 10f;
@@ -37,8 +37,32 @@ namespace FlyMod.Features
         private float _nextScan, _nextFriendsRefresh;
         private HashSet<Guid> _friends = new HashSet<Guid>();
         private readonly Dictionary<Renderer, bool> _hiddenRenderers = new Dictionary<Renderer, bool>();
-        private readonly Dictionary<Canvas, bool> _hiddenCanvases = new Dictionary<Canvas, bool>();
+        private const string CanvasReason = "people";
         private readonly Dictionary<Animator, AnimatorCullingMode> _culledAnimators = new Dictionary<Animator, AnimatorCullingMode>();
+
+        // People picked in the People tab (by persona). Only they are shown in Picked mode.
+        public readonly HashSet<Guid> Picked = new HashSet<Guid>();
+
+        // Picking the first person switches to Picked; unpicking the last goes back to everyone.
+        public void TogglePick(Guid person)
+        {
+            if (person == Guid.Empty)
+                return;
+            if (!Picked.Remove(person))
+                Picked.Add(person);
+            if (Picked.Count > 0)
+                Current = Mode.Picked;
+            else if (_mode == Mode.Picked)
+                Current = Mode.Everyone;
+            _nextScan = 0f;
+        }
+
+        public void ClearPicks()
+        {
+            Picked.Clear();
+            if (_mode == Mode.Picked)
+                Current = Mode.Everyone;
+        }
 
         public int PeopleHere { get; private set; }
         public int PeopleHidden { get; private set; }
@@ -103,7 +127,7 @@ namespace FlyMod.Features
             }
 
             var shownRenderers = new HashSet<Renderer>();
-            var shownCanvases = new HashSet<Canvas>();
+            var hiddenCanvases = new HashSet<Canvas>();
             var shownAnimators = new HashSet<Animator>();
             int people = 0, hidden = 0;
             foreach (DOMControllerLink controller in controllers)
@@ -124,8 +148,6 @@ namespace FlyMod.Features
                 {
                     foreach (Renderer renderer in controller.GetComponentsInChildren<Renderer>(true))
                         shownRenderers.Add(renderer);
-                    foreach (Canvas canvas in controller.GetComponentsInChildren<Canvas>(true))
-                        shownCanvases.Add(canvas);
                     foreach (Animator animator in controller.GetComponentsInChildren<Animator>(true))
                         shownAnimators.Add(animator);
                     continue;
@@ -139,9 +161,8 @@ namespace FlyMod.Features
                 }
                 foreach (Canvas canvas in controller.GetComponentsInChildren<Canvas>(true))
                 {
-                    if (!_hiddenCanvases.ContainsKey(canvas))
-                        _hiddenCanvases[canvas] = canvas.enabled;
-                    canvas.enabled = false;
+                    CanvasHider.Hide(canvas, CanvasReason);
+                    hiddenCanvases.Add(canvas);
                 }
                 foreach (Animator animator in controller.GetComponentsInChildren<Animator>(true))
                 {
@@ -156,7 +177,7 @@ namespace FlyMod.Features
             // Anyone who became visible (joined your clan, a friend, or the
             // rules changed) gets their original state back.
             RestoreWhere(r => r == null || shownRenderers.Contains(r));
-            RestoreCanvasesWhere(c => c == null || shownCanvases.Contains(c));
+            CanvasHider.ShowAllExcept(CanvasReason, hiddenCanvases);
             RestoreAnimatorsWhere(a => a == null || shownAnimators.Contains(a));
         }
 
@@ -166,6 +187,8 @@ namespace FlyMod.Features
             {
                 case Mode.Friends:
                     return _friends.Contains(owner);
+                case Mode.Picked:
+                    return Picked.Contains(owner);
                 case Mode.Clan:
                     return MyClan.Length > 0 && clanOf.TryGetValue(owner, out string clan) && clan == MyClan;
                 default:
@@ -173,7 +196,7 @@ namespace FlyMod.Features
             }
         }
 
-        private static Guid OwnerOf(DOMControllerLink controller)
+        internal static Guid OwnerOf(DOMControllerLink controller)
         {
             try
             {
@@ -187,7 +210,7 @@ namespace FlyMod.Features
 
         // Avatars, and pets or rides attached to them, live in a persona's
         // document; NPCs and room objects don't.
-        private static bool IsPersonDocument(DOMControllerLink controller)
+        internal static bool IsPersonDocument(DOMControllerLink controller)
         {
             try
             {
@@ -200,7 +223,7 @@ namespace FlyMod.Features
         }
 
         // "Clan: E N V Y" on the name tag -> "ENVY".
-        private static string ClanOf(DOMControllerLink controller)
+        internal static string ClanOf(DOMControllerLink controller)
         {
             try
             {
@@ -229,7 +252,7 @@ namespace FlyMod.Features
             return "";
         }
 
-        private static HashSet<Guid> FriendIds()
+        internal static HashSet<Guid> FriendIds()
         {
             var ids = new HashSet<Guid>();
             try
@@ -249,7 +272,7 @@ namespace FlyMod.Features
         private void ShowEveryone()
         {
             RestoreWhere(_ => true);
-            RestoreCanvasesWhere(_ => true);
+            CanvasHider.ShowAllExcept(CanvasReason, null);
             RestoreAnimatorsWhere(_ => true);
             PeopleHidden = 0;
         }
@@ -267,21 +290,6 @@ namespace FlyMod.Features
             }
             foreach (Renderer renderer in done)
                 _hiddenRenderers.Remove(renderer);
-        }
-
-        private void RestoreCanvasesWhere(Func<Canvas, bool> match)
-        {
-            var done = new List<Canvas>();
-            foreach (var pair in _hiddenCanvases)
-            {
-                if (!match(pair.Key))
-                    continue;
-                if (pair.Key != null)
-                    pair.Key.enabled = pair.Value;
-                done.Add(pair.Key);
-            }
-            foreach (Canvas canvas in done)
-                _hiddenCanvases.Remove(canvas);
         }
 
         private void RestoreAnimatorsWhere(Func<Animator, bool> match)

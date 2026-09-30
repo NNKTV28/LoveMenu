@@ -66,6 +66,8 @@ namespace FlyMod
             DebugLog.Init(Logger);
             ErrorLogger.Start(System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu"));
             GraphicsApiSetting.Load(System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu"));
+            ChatLog.Instance.Folder = System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu", "chat");
+            LagRecorder.Instance.Folder = System.IO.Path.Combine(Paths.BepInExRootPath, "LoveMenu");
             ConsoleQuickEditGuard.Apply();
             ApplyHarmonyPatches();
             CreateControllers();
@@ -107,6 +109,7 @@ namespace FlyMod
             _flyController = new FlyController(_playerContext);
             _speedBoostController = new SpeedBoostController(_playerContext);
             _teleportController = new TeleportController(_playerContext);
+            Minimap.Instance.SetTeleport(_teleportController.GoToMapPoint);
             _knockbackImmunityController = new KnockbackImmunityController();
             _bodyRotationLockController = new BodyRotationLockController();
             _cameraController = new CameraController(_playerContext);
@@ -175,6 +178,10 @@ namespace FlyMod
                 () => Toasts.Show(_teleportController.GoToQuestGiver()));
             _hotkeys.Register("gotosafe", "Go to safe", KeyCode.None,
                 () => Toasts.Show(_teleportController.GoToSafe()));
+            _hotkeys.Register("back", "Back (undo teleport)", KeyCode.None,
+                () => Toasts.Show(_teleportController.GoBack()));
+            _hotkeys.Register("minimap", "Minimap", KeyCode.None,
+                () => { Minimap.Instance.Enabled = !Minimap.Instance.Enabled; Toasts.Show(Minimap.Instance.Enabled ? "Minimap on" : "Minimap off"); });
             _hotkeys.Register("screenshot", "Screenshot mode", KeyCode.F9,
                 () => _cameraController.SetScreenshotMode(!_cameraController.ScreenshotMode));
         }
@@ -192,11 +199,59 @@ namespace FlyMod
         {
             _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
             {
+                Name = "Pose load fix",
+                Page = WorkaroundPage.Glitches,
+                OnByDefault = true,
+                Description = "Joining a room where people are already posing or dancing showed them inside each other: they loaded " +
+                    "before their pose partner and the game never attached them. Now they're attached as soon as the partner loads.",
+                Enabled = false,
+                OnToggle = enabled => PoseParentFix.Enabled = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Name = "Chat overlap fix",
+                Page = WorkaroundPage.Glitches,
+                OnByDefault = true,
+                Description = "Two chat channels drawn on top of each other: a channel added later (a group, a private message, " +
+                    "channels re-joined after a room change) showed its messages over the one you were reading. Now only " +
+                    "the channel you picked is shown. The chat loads at login, so this applies after restarting the game.",
+                Enabled = false,
+                OnToggle = enabled => ScriptFixes.ChatOverlapFix = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Name = "Chat link click fix",
+                Page = WorkaroundPage.Glitches,
+                OnByDefault = true,
+                Description = "Clicking a link in chat sometimes put the sender's name in the chat box instead of opening it: the " +
+                    "game measured the text differently from how it's drawn. Now the link under the mouse is found from the " +
+                    "drawn text itself.",
+                Enabled = false,
+                OnToggle = enabled => ChatLinkClickFix.Enabled = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
+                Name = "Clothing remove fix",
+                Page = WorkaroundPage.Glitches,
+                OnByDefault = true,
+                Description = "\"Items won't come off\": unticking an accessory in a different Accessories tab than the one it's " +
+                    "worn in removed nothing, and it couldn't be put on again. Now it comes off from the slot it's really in. " +
+                    "Applies the next time the dressing room opens.",
+                Enabled = false,
+                OnToggle = enabled => ScriptFixes.ClothingRemoveFix = enabled,
+            });
+
+            _crashWorkaroundController.Workarounds.Add(new CrashWorkaround
+            {
                 Name = "DynamicBones settings fix",
                 Description = "Some avatars send their hair and cloth physics settings in a nested list the game " +
                     "rejects (\"Cannot deserialize the current JSON array\"), so they get none. The list is now " +
                     "flattened first. This error came right before two confirmed crashes.",
                 Enabled = false,
+                Page = WorkaroundPage.Glitches,
                 OnToggle = enabled => DynamicBonesJsonFixPatch.Enabled = enabled,
             });
 
@@ -206,6 +261,7 @@ namespace FlyMod
                 Description = "Some objects (Scripted_menu_Bulava) failed to load because the game picked their " +
                     "animator instead of their model from the download. It now falls back to the model.",
                 Enabled = false,
+                Page = WorkaroundPage.Glitches,
                 OnToggle = enabled => WrongMainAssetFixPatch.Enabled = enabled,
             });
 
@@ -216,6 +272,7 @@ namespace FlyMod
                     "with a NullReferenceException when they arrived before their avatar. They now load using the " +
                     "game's own fallback, though they may sit slightly off.",
                 Enabled = false,
+                Page = WorkaroundPage.Glitches,
                 OnToggle = enabled => MissingParentLoadPatch.Enabled = enabled,
             });
 
@@ -227,7 +284,7 @@ namespace FlyMod
                     "a stutter every time someone joins. It now spends at most " + LoadSmoothing.BudgetMs.ToString("0") +
                     " ms per frame. People take a little longer to appear.",
                 Enabled = false,
-                OnRenderingPage = true,
+                Page = WorkaroundPage.Rendering,
                 OnToggle = enabled => LoadSmoothing.Enabled = enabled,
             });
 
@@ -238,7 +295,7 @@ namespace FlyMod
                 Description = "Lamps and spotlights stop casting shadows. Each one that does draws the room six " +
                     "more times, so indoor rooms with many lamps gain the most.",
                 Enabled = false,
-                OnRenderingPage = true,
+                Page = WorkaroundPage.Rendering,
                 OnToggle = enabled => { _renderTweaks.LampShadowsOff = enabled; _renderTweaks.ApplyNow(); },
             });
 
@@ -249,7 +306,7 @@ namespace FlyMod
                 Description = "Avatars and NPCs further than " + RenderTweaks.AvatarDrawDistance.ToString("0") +
                     " m from the camera aren't drawn. Helps in crowded hubs. Zooming out further hides your own avatar too.",
                 Enabled = false,
-                OnRenderingPage = true,
+                Page = WorkaroundPage.Rendering,
                 OnToggle = enabled => { _renderTweaks.AvatarDistance = enabled; _renderTweaks.ApplyNow(); },
             });
 
@@ -260,7 +317,7 @@ namespace FlyMod
                 Description = "Mirrors redraw the whole room every frame. They now update every other frame, " +
                     "without shadows in the reflection.",
                 Enabled = false,
-                OnRenderingPage = true,
+                Page = WorkaroundPage.Rendering,
                 OnToggle = enabled => RenderTweaks.CheaperMirrors = enabled,
             });
 
@@ -271,7 +328,7 @@ namespace FlyMod
                 Description = "Some rooms redraw their reflections (six views of the room each) once a minute, " +
                     "a short stutter. They are now drawn once when the room loads.",
                 Enabled = false,
-                OnRenderingPage = true,
+                Page = WorkaroundPage.Rendering,
                 OnToggle = enabled => RenderTweaks.NoProbeRefresh = enabled,
             });
 
@@ -282,7 +339,7 @@ namespace FlyMod
                 Description = "In rooms with decals, every camera (mirrors, water reflections) redrew the room one " +
                     "to three extra times for them. Now only your main view does. Decals in reflections may look off.",
                 Enabled = false,
-                OnRenderingPage = true,
+                Page = WorkaroundPage.Rendering,
                 OnToggle = enabled => DecalsMainCameraOnlyPatch.Enabled = enabled,
             });
 
@@ -293,7 +350,7 @@ namespace FlyMod
                 Description = "Turns off the sky's sun shafts, sky blur and temporal reprojection passes, which run " +
                     "on top of the game's own post-processing.",
                 Enabled = false,
-                OnRenderingPage = true,
+                Page = WorkaroundPage.Rendering,
                 OnToggle = enabled => { _renderTweaks.SkyEffectsOff = enabled; _renderTweaks.ApplyNow(); },
             });
 
@@ -323,6 +380,9 @@ namespace FlyMod
         {
             _crashDumpController.Heartbeat();
             ErrorLogger.Tick();
+            LagRecorder.Instance.Tick();
+            PoseRecorder.Instance.Tick(_playerContext);
+            PoseParentFix.Tick();
             GraphicsApiSetting.Tick();
 
             if (_keybinds.CaptureIfRebinding())
@@ -369,24 +429,76 @@ namespace FlyMod
 
         private void TickAllFeatures()
         {
+            long __t;
+            __t = LagRecorder.Begin();
             _flyController.Tick(Typing, _keybinds.FlyUpKey, _keybinds.FlyDownKey);
+            LagRecorder.End("fly", __t);
+            __t = LagRecorder.Begin();
             _knockbackImmunityController.Tick(_flyController.Flying);
+            LagRecorder.End("knockbackImmunity", __t);
+            __t = LagRecorder.Begin();
             _bodyRotationLockController.Tick();
+            LagRecorder.End("bodyRotationLock", __t);
+            __t = LagRecorder.Begin();
             _speedBoostController.Tick(Typing, _flyController.Flying);
+            LagRecorder.End("speedBoost", __t);
+            __t = LagRecorder.Begin();
             _cameraController.Tick();
+            LagRecorder.End("camera", __t);
+            __t = LagRecorder.Begin();
             _systemStatsController.Tick();
+            LagRecorder.End("systemStats", __t);
+            __t = LagRecorder.Begin();
             _promoPopupController.Tick(Time.deltaTime, _playerContext.Avatar != null, _playerContext.TypingInChat);
+            LagRecorder.End("promoPopup", __t);
+            __t = LagRecorder.Begin();
             _uiDebugController.Tick(Time.deltaTime);
+            LagRecorder.End("uiDebug", __t);
+            __t = LagRecorder.Begin();
             _performanceController.Tick(Time.deltaTime);
+            LagRecorder.End("performance", __t);
+            __t = LagRecorder.Begin();
             _wingsHiderController.Tick(Time.deltaTime);
+            LagRecorder.End("wingsHider", __t);
+            __t = LagRecorder.Begin();
             _renderTweaks.Tick();
+            LagRecorder.End("renderTweaks", __t);
+            __t = LagRecorder.Begin();
             FpsBenchmark.Tick(Time.unscaledDeltaTime);
+            LagRecorder.End("FpsBenchmark", __t);
+            __t = LagRecorder.Begin();
             FriendNotifier.Instance.Tick();
+            LagRecorder.End("FriendNotifier", __t);
+            __t = LagRecorder.Begin();
+            RoomScan.Instance.Tick();
+            LagRecorder.End("RoomScan", __t);
+            __t = LagRecorder.Begin();
+            Minimap.Instance.Tick(_playerContext);
+            LagRecorder.End("Minimap", __t);
+            __t = LagRecorder.Begin();
+            NameTagDistance.Instance.Tick();
+            LagRecorder.End("NameTagDistance", __t);
+            __t = LagRecorder.Begin();
+            AutoCrowd.Instance.Tick();
+            LagRecorder.End("AutoCrowd", __t);
+            __t = LagRecorder.Begin();
+            ChatLog.Instance.Tick(_playerContext.PlayerName);
+            LagRecorder.End("ChatLog", __t);
+            __t = LagRecorder.Begin();
             PeopleFilter.Instance.Tick();
+            LagRecorder.End("PeopleFilter", __t);
+            __t = LagRecorder.Begin();
             FortuneTracker.Instance.Tick();
+            LagRecorder.End("FortuneTracker", __t);
+            __t = LagRecorder.Begin();
             _collectionLogger.Tick();
+            LagRecorder.End("collectionLogger", __t);
+            __t = LagRecorder.Begin();
             QuizHelper.Tick();
+            LagRecorder.End("QuizHelper", __t);
+            __t = LagRecorder.Begin();
             _updateChecker.Tick();
+            LagRecorder.End("updateChecker", __t);
         }
 
         private void OnGUI()
@@ -400,8 +512,10 @@ namespace FlyMod
 
             // The overlay shows whether or not the menu is open, drawn first
             // so the menu window sits on top of it.
+            long __draw = LagRecorder.Begin();
             _menuUI.Styles.Rebuild(_menuUI.Theme);
             _overlay.Draw(_menuUI.Styles);
+            Minimap.Instance.Draw(_menuUI.Styles, _playerContext);
             QuizHelper.Draw(_menuUI.Styles);
             _menuUI.Draw();
             _welcome.Draw(_menuUI.Styles);

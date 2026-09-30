@@ -20,16 +20,18 @@ namespace FlyMod.Features
     // effects, and room changes (many objects vanishing at once).
     internal class CollectionLogger
     {
-        private const float PickupRange = 4f;
+        private const float PickupRange = 6f;
         private const float FullScanSeconds = 2f;
         private const float CheckSeconds = 0.2f;
         private const int RoomChangeThreshold = 4;
 
         private class Tracked
         {
-            public Transform Transform;
+            public Transform Transform;     // the "[DOM...: id] Name" object
             public string Name;
             public Vector3 LastPosition;
+            public bool Known;              // a known quest pickup (key, shell...)
+            public bool CountedWhileHidden;
         }
 
         public class Entry
@@ -88,20 +90,54 @@ namespace FlyMod.Features
         {
             foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
             {
-                GameObject candidate = renderer.gameObject;
-                int id = candidate.GetInstanceID();
+                int rendererId = renderer.gameObject.GetInstanceID();
+                if (_ignored.Contains(rendererId))
+                    continue;
+
+                // The pickup is the server object ("[DOMRenderable: 5] Key_Gold");
+                // its visible mesh is often a child with a plain name.
+                Transform server = ServerObjectOf(renderer.transform);
+                if (server == null)
+                {
+                    _ignored.Add(rendererId);
+                    continue;
+                }
+                int id = server.gameObject.GetInstanceID();
                 if (_tracked.ContainsKey(id) || _ignored.Contains(id))
                     continue;
 
-                string rawName = candidate.name;
-                string name = TeleportController.CleanObjectName(rawName);
-                if (rawName.Length == name.Length || !LooksLikeItem(name) || candidate.GetComponentInParent<DOMControllerLink>() != null)
+                string name = TeleportController.CleanObjectName(server.name);
+                if (!LooksLikeItem(name) || server.GetComponentInParent<DOMControllerLink>() != null)
                 {
                     _ignored.Add(id);
                     continue;
                 }
-                _tracked[id] = new Tracked { Transform = candidate.transform, Name = name, LastPosition = candidate.transform.position };
+                _tracked[id] = new Tracked { Transform = server, Name = name, LastPosition = server.position, Known = IsKnownItem(name) };
             }
+        }
+
+        // The nearest "[DOM...]" object at or above this one (up to 4 levels).
+        private static Transform ServerObjectOf(Transform transform)
+        {
+            for (int depth = 0; depth < 5 && transform != null; depth++)
+            {
+                if (transform.name.StartsWith("[DOM", StringComparison.Ordinal))
+                    return transform;
+                transform = transform.parent;
+            }
+            return null;
+        }
+
+        // A known pickup counts as picked up when it's hidden, not only when
+        // it's deleted: Key Hunter keys stay in the room, just hidden.
+        private static bool IsHidden(Transform transform)
+        {
+            if (!transform.gameObject.activeInHierarchy)
+                return true;
+            foreach (Renderer renderer in transform.GetComponentsInChildren<Renderer>())
+                if (renderer.enabled && !renderer.forceRenderingOff)
+                    return false;
+            return true;
         }
 
         private static bool LooksLikeItem(string name)
@@ -121,17 +157,52 @@ namespace FlyMod.Features
         {
             Vector3 player = _playerContext.Avatar.transform.position;
             _vanished.Clear();
-            // Only objects that were removed count. Merely hidden ones
-            // (Cupon, GlassBallMesh, InteractiveArrow hide when you walk up)
-            // are kept and not logged - picked-up items are destroyed.
+            // Removed objects count. Hidden ones count only for known pickups
+            // (keys are hidden, not removed); other things hide when you walk
+            // up (Cupon, GlassBallMesh, InteractiveArrow) and aren't pickups.
+            var hiddenPickups = new List<string>();
             foreach (var pair in _tracked)
             {
-                Transform transform = pair.Value.Transform;
+                Tracked item = pair.Value;
+                Transform transform = item.Transform;
                 if (transform == null)
+                {
                     _vanished.Add(pair.Key);
-                else if (transform.gameObject.activeInHierarchy)
-                    pair.Value.LastPosition = transform.position;
+                    continue;
+                }
+                if (!item.Known)
+                {
+                    // Not counted, but written to the log once as "Other" when
+                    // it's hidden right next to you - that's how a new quest
+                    // item's name shows up.
+                    if (transform.gameObject.activeInHierarchy)
+                    {
+                        item.LastPosition = transform.position;
+                        item.CountedWhileHidden = false;
+                    }
+                    else if (!item.CountedWhileHidden)
+                    {
+                        item.CountedWhileHidden = true;
+                        if (Vector3.Distance(item.LastPosition, player) <= PickupRange)
+                            hiddenPickups.Add(item.Name);
+                    }
+                    continue;
+                }
+                if (!IsHidden(transform))
+                {
+                    item.LastPosition = transform.position;
+                    item.CountedWhileHidden = false;
+                }
+                else if (!item.CountedWhileHidden)
+                {
+                    item.CountedWhileHidden = true;
+                    if (Vector3.Distance(item.LastPosition, player) <= PickupRange)
+                        hiddenPickups.Add(item.Name);
+                }
             }
+            foreach (string name in hiddenPickups)
+                if (name.IndexOf("GiftboxAura", StringComparison.OrdinalIgnoreCase) < 0 || hiddenPickups.Count == 1)
+                    Record(name);
             if (_vanished.Count == 0)
                 return;
 
@@ -142,7 +213,7 @@ namespace FlyMod.Features
             {
                 Tracked item = _tracked[id];
                 _tracked.Remove(id);
-                if (!roomChange && Vector3.Distance(item.LastPosition, player) <= PickupRange)
+                if (!roomChange && !item.CountedWhileHidden && Vector3.Distance(item.LastPosition, player) <= PickupRange)
                     picked.Add(item.Name);
             }
 
@@ -160,13 +231,13 @@ namespace FlyMod.Features
         // and are left out of the counts and notices.
         private static readonly string[] KnownItems = { "Shell", "Letter", "Key", "GiftboxAura", "Flower" };
 
-        public static bool IsKnownItem(string name)
-        {
-            foreach (string known in KnownItems)
-                if (name.IndexOf(known, StringComparison.OrdinalIgnoreCase) >= 0)
-                    return true;
-            return false;
-        }
+        // The word must start the name or follow a non-letter, so "Key_Gold"
+        // and "Letter N 5" count but "Monkey" and "Turkey" don't.
+        private static readonly System.Text.RegularExpressions.Regex KnownPattern =
+            new System.Text.RegularExpressions.Regex("(^|[^a-z])(" + string.Join("|", KnownItems) + ")",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        public static bool IsKnownItem(string name) => KnownPattern.IsMatch(name ?? "");
 
         private const string OtherType = "Other";
 

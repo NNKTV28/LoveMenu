@@ -106,6 +106,23 @@ namespace FlyMod.Features
             }
         }
 
+        // Called by the freeze watchdog (on its own thread): tells the
+        // launcher the game froze on a non-default API, so it goes back to
+        // DirectX 11 next time.
+        public static void NoteHang()
+        {
+            if (Folder == null || Chosen == Api.DirectX11)
+                return;
+            try
+            {
+                File.WriteAllText(Path.Combine(Folder, "graphics-hang.txt"), Names[(int)Chosen] + " " + DateTime.UtcNow.ToString("o"));
+            }
+            catch
+            {
+                // best effort
+            }
+        }
+
         // Tells the launcher this API works on this PC.
         public static void Tick()
         {

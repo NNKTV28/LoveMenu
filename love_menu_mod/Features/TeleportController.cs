@@ -50,12 +50,68 @@ namespace FlyMod.Features
             Waypoints.Add(new Waypoint { Name = finalName, Position = _playerContext.Avatar.transform.position });
         }
 
+        // Every teleport remembers where you were, so Back can return there.
+        private const int MaxHistory = 20;
+        private readonly List<(Vector3 Position, string Scene)> _history = new List<(Vector3, string)>();
+
+        public int BackSteps
+        {
+            get
+            {
+                string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+                return _history.FindAll(h => h.Scene == scene).Count;
+            }
+        }
+
         public void GoToPosition(Vector3 targetPosition)
         {
             if (_playerContext.Avatar == null)
                 return;
+            _history.Add((_playerContext.Avatar.transform.position, UnityEngine.SceneManagement.SceneManager.GetActiveScene().name));
+            if (_history.Count > MaxHistory)
+                _history.RemoveAt(0);
             _playerContext.MoveAvatarTo(targetPosition);
             Reflect.ZeroVerticalVelocity();
+        }
+
+        // Back to where the last teleport started, in this room.
+        public string GoBack()
+        {
+            if (_playerContext.Avatar == null)
+                return "No avatar yet";
+            string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            for (int i = _history.Count - 1; i >= 0; i--)
+            {
+                var spot = _history[i];
+                _history.RemoveAt(i);
+                if (spot.Scene != scene)
+                    continue;
+                _playerContext.MoveAvatarTo(spot.Position);
+                Reflect.ZeroVerticalVelocity();
+                return "Back";
+            }
+            return "Nowhere to go back to in this room";
+        }
+
+        // A spot picked on the minimap: find the floor there, from a little
+        // above your height down, skipping triggers and your own avatar.
+        public bool GoToMapPoint(Vector3 point)
+        {
+            if (_playerContext.Avatar == null)
+                return false;
+            Transform me = _playerContext.Avatar.transform;
+            var from = new Vector3(point.x, me.position.y + 3f, point.z);
+            RaycastHit[] hits = Physics.RaycastAll(from, Vector3.down, 60f, ~0, QueryTriggerInteraction.Ignore);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider == null || hit.collider.transform.IsChildOf(me))
+                    continue;
+                GoToPosition(hit.point + Vector3.up * 0.1f);
+                return true;
+            }
+            GoToPosition(new Vector3(point.x, me.position.y, point.z));
+            return true;
         }
 
         public void GoToFriend(Vector3 friendPosition) => GoToPosition(friendPosition + Vector3.left * 1.5f);
@@ -85,9 +141,9 @@ namespace FlyMod.Features
 
         // Rideable and usable props are controlled objects too
         // ("Vehicle_Horse01-02_Brown", "Treadmill_01_AnimParts", "Tool_Skate_model_3").
-        private static readonly string[] PropPrefixes = { "Vehicle_", "Tool_", "Treadmill" };
+        private static readonly string[] PropPrefixes = { "Vehicle_", "Tool_", "Treadmill", "[VFX]", "VFX_", "FX_" };
 
-        private static bool IsProp(string name)
+        internal static bool IsProp(string name)
         {
             foreach (string prefix in PropPrefixes)
                 if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -114,7 +170,7 @@ namespace FlyMod.Features
             return "The quest giver isn't in this room (Love Angeles beach)";
         }
 
-        private static string NpcName(DOMControllerLink character)
+        internal static string NpcName(DOMControllerLink character)
         {
             try
             {

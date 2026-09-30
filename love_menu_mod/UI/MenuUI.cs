@@ -18,10 +18,10 @@ namespace FlyMod.UI
     // same controls.
     internal class MenuUI
     {
-        public const string Version = "1.6.0";
+        public const string Version = "1.7.0";
 
         // Saved by number, so new pages go at the end.
-        private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits, Rendering, Fortune }
+        private enum Section { Home, Movement, Camera, Teleports, Performance, Crashes, Settings, Credits, Rendering, Fortune, Glitches, People }
 
         private static readonly (Section Section, string Title, string Subtitle)[] Pages =
         {
@@ -29,10 +29,11 @@ namespace FlyMod.UI
             (Section.Movement, "Movement", "Fly, speed and staying on your feet."),
             (Section.Camera, "Camera", "Field of view, zoom and clean screenshots."),
             (Section.Teleports, "Teleports", "Find things in the room, save spots, reach friends."),
-            (Section.Fortune, "Fortune", "Kiss of Fortune and the other fortune balls: when your free opening is ready."),
+            (Section.People, "People", "Who is in the room, and the chat log with mention alerts."),
             (Section.Performance, "Performance", "Keep busy rooms smooth."),
             (Section.Rendering, "Rendering", "Cheaper drawing and smoother loading of people."),
             (Section.Crashes, "Crashes", "What the menu does to keep the game running."),
+            (Section.Glitches, "Bug fixes", "Fixes for the game's own bugs, and tools to track them down."),
             (Section.Settings, "Settings", "Keys, look and size of the menu."),
             (Section.Credits, "Credits", "Who made this and where to get help."),
         };
@@ -47,12 +48,12 @@ namespace FlyMod.UI
             ("Free memory", Section.Performance), ("Auto-free RAM", Section.Performance), ("Hide player wings", Section.Performance),
             ("Texture resolution", Section.Performance), ("Shadow distance", Section.Performance), ("LOD bias", Section.Performance),
             ("Performance profile (Quality, Balanced, Potato)", Section.Rendering), ("FPS benchmark", Section.Rendering),
-            ("Friend arrival notices", Section.Teleports), ("Make crash report", Section.Crashes),
+            ("Friend arrival notices", Section.Teleports), ("Make crash report", Section.Crashes), ("Bug fixes / glitches", Section.Glitches), ("Lag spike recorder", Section.Glitches), ("People in this room", Section.People), ("Chat log / mention alerts", Section.People), ("Minimap", Section.Teleports), ("Back (undo teleport)", Section.Teleports), ("Name tags distance", Section.Rendering), ("Auto crowd mode", Section.Rendering),
             ("Show people (clan, friends)", Section.Rendering), ("Graphics API (DirectX 12, Vulkan)", Section.Rendering), ("Multithreaded rendering", Section.Rendering),
             ("Smooth loading", Section.Rendering),("Lamp shadows", Section.Rendering), ("Avatar draw distance", Section.Rendering),
             ("Mirrors", Section.Rendering), ("Reflections", Section.Rendering), ("Decals", Section.Rendering), ("Sky effects", Section.Rendering),
-            ("Kiss of Fortune / fortune balls", Section.Fortune), ("Free opening timer", Section.Fortune),
-            ("Crash dumps", Section.Crashes), ("DynamicBones settings fix", Section.Crashes), ("Game errors log", Section.Crashes),
+            ("Kiss of Fortune timer", Section.Home), ("Kiss of Fortune notice", Section.Settings),
+            ("Crash dumps", Section.Crashes), ("DynamicBones settings fix (hair / cloth physics)", Section.Glitches), ("Load fixes (missing objects, lights)", Section.Glitches), ("Game errors log", Section.Crashes),
             ("Keys and hotkeys", Section.Settings), ("Hide promo popups", Section.Settings), ("Accent color", Section.Settings),
             ("Background opacity", Section.Settings), ("Menu size", Section.Settings), ("Mini overlay", Section.Settings),
             ("Reset all settings", Section.Settings), ("Check for updates", Section.Home), ("Version", Section.Credits),
@@ -77,7 +78,7 @@ namespace FlyMod.UI
         public bool Open { get; private set; }
         // Read by the game-input patches: while true, the game ignores the
         // mouse wheel and treats clicks as clicks on its own UI.
-        public static bool IsMouseOverOpenMenu => _mouseOverWindow || WelcomeBlocksMouse || _mouseOverQuizPanel;
+        public static bool IsMouseOverOpenMenu => _mouseOverWindow || WelcomeBlocksMouse || _mouseOverQuizPanel || Minimap.MouseOver;
         private static bool _mouseOverQuizPanel;
         public static void UpdateQuizPanelHover(bool over) => _mouseOverQuizPanel = over;
         private static bool _mouseOverWindow;
@@ -185,7 +186,8 @@ namespace FlyMod.UI
         public int SectionIndex
         {
             get => (int)_section;
-            set => _section = (Section)Mathf.Clamp(value, 0, Pages.Length - 1);
+            // A saved page that no longer exists (Fortune moved to Home) opens Home.
+            set => _section = Array.Exists(Pages, page => (int)page.Section == value) ? (Section)value : Section.Home;
         }
 
         public Vector2 WindowPosition
@@ -337,10 +339,11 @@ namespace FlyMod.UI
             NavItem(Section.Movement, Icons.Movement);
             NavItem(Section.Camera, Icons.Camera);
             NavItem(Section.Teleports, Icons.Teleport);
-            NavItem(Section.Fortune, Icons.Heart);
+            NavItem(Section.People, Icons.People);
             NavItem(Section.Performance, Icons.Gauge);
             NavItem(Section.Rendering, Icons.Eye);
             NavItem(Section.Crashes, Icons.Warning);
+            NavItem(Section.Glitches, Icons.Bug);
             NavItem(Section.Settings, Icons.Settings);
             NavItem(Section.Credits, Icons.Info);
 
@@ -788,7 +791,8 @@ namespace FlyMod.UI
                 case Section.Teleports: DrawTeleports(width); break;
                 case Section.Performance: DrawPerformance(width); break;
                 case Section.Rendering: DrawRendering(width); break;
-                case Section.Fortune: DrawFortune(width); break;
+                case Section.Glitches: DrawGlitches(width); break;
+                case Section.People: DrawPeople(width); break;
                 case Section.Crashes: DrawCrashes(width); break;
                 case Section.Settings: DrawSettings(width); break;
                 case Section.Credits: DrawCredits(width); break;
@@ -912,10 +916,15 @@ namespace FlyMod.UI
             GUILayout.Label(status, new GUIStyle(S.Small) { normal = { textColor = next != null && next.FreeNow ? Theme.SuccessText : Theme.TextSecondary } });
             GUILayout.EndVertical();
             GUILayout.FlexibleSpace();
-            BeginCentered(blockHeight, S.Secondary.fixedHeight);
-            if (Button("Open", S.Secondary))
-                Later(() => OpenSection(Section.Fortune));
-            EndCentered();
+            // Go to the ball when it's in this room.
+            if (next != null && FortuneTracker.Instance.InThisRoom(next))
+            {
+                BeginCentered(blockHeight, S.Secondary.fixedHeight);
+                Vector3 ball = next.Position;
+                if (Button("Go", S.Secondary))
+                    Later(() => _teleportController.GoToNpc(ball));
+                EndCentered();
+            }
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
         }
@@ -1080,8 +1089,61 @@ namespace FlyMod.UI
 
         // Teleports -------------------------------------------------------------
 
+        private static readonly string[] CornerShortNames = { "Top left", "Top right", "Bottom left", "Bottom right" };
+
+        // Minimap settings and the Back button, above the teleport cards.
+        private void DrawMapCard(float inner)
+        {
+            Minimap map = Minimap.Instance;
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical(GUILayout.Width(inner * 0.5f));
+            GUILayout.Label("Back", S.CardTitle);
+            GUILayout.Space(S.S(3));
+            GUILayout.Label("Returns you to where your last teleport started in this room.", S.Description, GUILayout.Width(inner * 0.5f));
+            GUILayout.EndVertical();
+            GUILayout.FlexibleSpace();
+            int steps = _teleportController.BackSteps;
+            GUI.enabled = steps > 0;
+            if (Button(steps > 0 ? "Back (" + steps + ")" : "Back", S.Primary))
+                Later(() => Toasts.Show(_teleportController.GoBack()));
+            GUI.enabled = true;
+            GUILayout.Space(S.S(10));
+            BeginCentered(S.Primary.fixedHeight, HotkeyStyle("back").fixedHeight);
+            HotkeyButton("back");
+            EndCentered();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(S.S(14));
+            Widgets.Divider(S);
+            GUILayout.Space(S.S(14));
+
+            ToggleRow(inner, "minimap", "Minimap",
+                "A map of the room in a screen corner: green friends, purple clan, grey players, yellow NPCs. Hover a dot for the name, click the map to teleport there.",
+                map.Enabled, () => { map.Enabled = !map.Enabled; Toggle("Minimap", map.Enabled); }, hotkeyId: "minimap");
+            if (!map.Enabled)
+                return;
+            GUILayout.Space(S.S(12));
+            GUILayout.Label("Corner", S.Small);
+            GUILayout.Space(S.S(4));
+            Segmented(CornerShortNames, (int)map.Position, index => map.Position = (Minimap.Corner)index, inner);
+            GUILayout.Space(S.S(10));
+            GUILayout.Label("Range", S.Small);
+            GUILayout.Space(S.S(4));
+            Segmented(Minimap.RangeNames, map.RangeIndex, index => map.RangeIndex = index, inner);
+            GUILayout.Space(S.S(12));
+            ToggleRow(inner, "map-turn", "Turn with the camera", "Off: north is always up.",
+                map.TurnWithCamera, () => map.TurnWithCamera = !map.TurnWithCamera, titleStyle: S.BodyStrong);
+            GUILayout.Space(S.S(10));
+            ToggleRow(inner, "map-picture", "Map picture", "A top-down view of the room behind the dots. Off saves a little FPS.",
+                map.ShowPicture, () => map.ShowPicture = !map.ShowPicture, titleStyle: S.BodyStrong);
+            GUILayout.Space(S.S(10));
+            ToggleRow(inner, "map-click", "Click to teleport", "Click a dot or any spot on the map to go there.",
+                map.ClickToTeleport, () => map.ClickToTeleport = !map.ClickToTeleport, titleStyle: S.BodyStrong);
+        }
+
         private void DrawTeleports(float width)
         {
+            Card(width, DrawMapCard);
+
             Columns(width, column => Card(column, inner =>
             {
                 GUILayout.Label("Find objects", S.CardTitle);
@@ -1506,59 +1568,228 @@ namespace FlyMod.UI
             });
         }
 
-        // Fortune ---------------------------------------------------------------
+        // People ----------------------------------------------------------------
 
-        private void DrawFortune(float width)
+        private string _peopleSearch = "";
+        private string _chatSearch = "";
+        private Vector2 _peopleScroll, _chatScroll;
+
+        private void DrawPeople(float width)
         {
-            FortuneTracker fortune = FortuneTracker.Instance;
+            RoomScan.Instance.Want();
+            Columns(width, column => Card(column, inner =>
+            {
+                PeopleFilter filter = PeopleFilter.Instance;
+                GUILayout.Label("People in this room", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label(RoomScan.Instance.PlayerCount + " players here, nearest first. Go takes you next to them. " +
+                    "Only: show just the people you pick - everyone else, with their name tags, disappears from your screen.",
+                    S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(10));
+                if (filter.Current == PeopleFilter.Mode.Picked)
+                {
+                    GUILayout.BeginHorizontal();
+                    CenteredLabel("Showing only " + filter.Picked.Count + " picked " + (filter.Picked.Count == 1 ? "person" : "people"),
+                        new GUIStyle(S.BodyStrong) { normal = { textColor = Theme.AccentText } }, S.Secondary.fixedHeight);
+                    GUILayout.FlexibleSpace();
+                    if (Button("Show everyone", S.Secondary))
+                        Later(() => { filter.ClearPicks(); Toasts.Show("Showing everyone"); });
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(S.S(10));
+                }
+                _peopleSearch = GUILayout.TextField(_peopleSearch, S.TextField, GUILayout.Width(inner));
+                GUILayout.Space(S.S(10));
+
+                Vector3 me = _playerContext.Avatar != null ? _playerContext.Avatar.transform.position : Vector3.zero;
+                var people = RoomScan.Instance.Entries.FindAll(e =>
+                    (e.Kind == RoomScan.Kind.Player || e.Kind == RoomScan.Kind.Friend || e.Kind == RoomScan.Kind.Clan) &&
+                    (_peopleSearch.Trim().Length == 0 ||
+                     e.Name.IndexOf(_peopleSearch.Trim(), StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     e.Clan.IndexOf(_peopleSearch.Trim(), StringComparison.OrdinalIgnoreCase) >= 0));
+                people.Sort((a, b) => (a.Position - me).sqrMagnitude.CompareTo((b.Position - me).sqrMagnitude));
+                if (people.Count == 0)
+                {
+                    EmptyState(_peopleSearch.Trim().Length > 0 ? "Nobody here matches." : "Nobody else here yet.");
+                    return;
+                }
+                _peopleScroll = GUILayout.BeginScrollView(_peopleScroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUIStyle.none,
+                    GUILayout.Height(Mathf.Min(people.Count * S.S(46), S.S(420))));
+                ListRows(people, (person, index) =>
+                {
+                    Color dot = person.Kind == RoomScan.Kind.Friend ? new Color(0.29f, 0.87f, 0.5f)
+                        : person.Kind == RoomScan.Kind.Clan ? Theme.AccentText : Theme.TextSecondary;
+                    BeginCentered(S.Go.fixedHeight, S.S(8));
+                    Widgets.Dot(S, S.S(8), dot);
+                    EndCentered();
+                    GUILayout.Space(S.S(10));
+                    GUILayout.BeginVertical(GUILayout.Width(inner - S.S(220)));
+                    GUILayout.Label(person.Name, new GUIStyle(S.Body) { wordWrap = false, clipping = TextClipping.Clip });
+                    if (person.Clan.Length > 0)
+                        GUILayout.Label(person.Clan, new GUIStyle(S.Small) { wordWrap = false, clipping = TextClipping.Clip });
+                    GUILayout.EndVertical();
+                    GUILayout.FlexibleSpace();
+                    CenteredLabel((person.Position - me).magnitude.ToString("0") + " m", S.Small, S.Go.fixedHeight);
+                    GUILayout.Space(S.S(8));
+                    Guid owner = person.Owner;
+                    bool picked = filter.Picked.Contains(owner);
+                    if (Button(picked ? "✓ Only" : "Only", picked ? S.Primary : S.Secondary, GUILayout.Width(S.S(64))))
+                        Later(() =>
+                        {
+                            filter.TogglePick(owner);
+                            Toasts.Show(filter.Picked.Count == 0 ? "Showing everyone" : "Showing only " + filter.Picked.Count + " picked");
+                        });
+                    GUILayout.Space(S.S(6));
+                    Vector3 target = person.Position;
+                    if (Button("Go", S.Go))
+                        _teleportController.GoToFriend(target);
+                });
+                GUILayout.EndScrollView();
+            }), column => Card(column, inner =>
+            {
+                ChatLog chat = ChatLog.Instance;
+                GUILayout.BeginHorizontal();
+                GUILayout.BeginVertical(GUILayout.Width(inner - S.S(110)));
+                GUILayout.Label("Chat log", S.CardTitle);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Everything your chat receives, saved per day in BepInEx\\LoveMenu\\chat. Stays on this PC.",
+                    S.Description, GUILayout.Width(inner - S.S(110)));
+                GUILayout.EndVertical();
+                GUILayout.FlexibleSpace();
+                if (Button("Open folder", S.Secondary))
+                    chat.OpenFolder();
+                GUILayout.EndHorizontal();
+                GUILayout.Space(S.S(12));
+                ToggleRow(inner, "chat-save", "Save chat to a file", "Off: kept only in this list until you close the game.",
+                    chat.SaveToFile, () => chat.SaveToFile = !chat.SaveToFile, titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(10));
+                ToggleRow(inner, "chat-mention", "Mention alerts",
+                    "A notice when a message has your name (" + (_playerContext.PlayerName.Length > 0 ? _playerContext.PlayerName : "your name") +
+                    ") or one of your words, and the taskbar button flashes if the game is in the background.",
+                    chat.MentionAlerts, () => chat.MentionAlerts = !chat.MentionAlerts, titleStyle: S.BodyStrong);
+                if (chat.MentionAlerts)
+                {
+                    GUILayout.Space(S.S(8));
+                    GUILayout.Label("Also alert on these words (comma separated)", S.Small);
+                    GUILayout.Space(S.S(4));
+                    chat.ExtraWords = GUILayout.TextField(chat.ExtraWords, S.TextField, GUILayout.Width(inner));
+                }
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(12));
+                GUILayout.Label("Search the chat", S.Small);
+                GUILayout.Space(S.S(4));
+                _chatSearch = GUILayout.TextField(_chatSearch, S.TextField, GUILayout.Width(inner));
+                GUILayout.Space(S.S(8));
+
+                string query = _chatSearch.Trim();
+                var lines = new List<ChatLog.Line>();
+                for (int i = chat.Recent.Count - 1; i >= 0 && lines.Count < 80; i--)
+                {
+                    ChatLog.Line line = chat.Recent[i];
+                    if (query.Length == 0 || line.Text.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        line.From.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                        lines.Add(line);
+                }
+                if (lines.Count == 0)
+                {
+                    EmptyState(chat.Recent.Count == 0 ? "No messages yet this session." : "No message matches.");
+                    return;
+                }
+                _chatScroll = GUILayout.BeginScrollView(_chatScroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUIStyle.none,
+                    GUILayout.Height(S.S(260)));
+                var textStyle = new GUIStyle(S.Small) { wordWrap = true, richText = false };
+                foreach (ChatLog.Line line in lines)
+                {
+                    GUILayout.Label(line.When.ToString("HH:mm") + "  [" + line.Channel + "]  " + line.From + ": " + line.Text,
+                        textStyle, GUILayout.Width(inner - S.S(20)));
+                    GUILayout.Space(S.S(4));
+                }
+                GUILayout.EndScrollView();
+            }));
+        }
+
+        // Bug fixes -------------------------------------------------------------
+
+        private void DrawLagRecorderCard(float inner)
+        {
+            LagRecorder lag = LagRecorder.Instance;
+            ToggleRow(inner, "lag-recorder", "Lag spike recorder",
+                "Writes down every hitch (a frame over 50 ms) and what happened in it: objects loading, garbage collection, chat messages, Love Menu's own work. Saved to BepInEx\\LoveMenu\\lag.log.",
+                lag.Enabled, () => { lag.Enabled = !lag.Enabled; Toggle("Lag spike recorder", lag.Enabled); }, titleStyle: S.BodyStrong);
+            GUILayout.Space(S.S(12));
+            if (lag.Total == 0)
+                EmptyState(lag.Enabled ? "No hitches yet. Play where it lags." : "Turn it on and play where it lags.");
+            else
+            {
+                GUILayout.Label(lag.Total + " hitches: " + lag.WithLoading + " while objects loaded, " + lag.WithGc + " with garbage collection, " +
+                    lag.WithChat + " with chat messages, " + lag.WithMenu + " with Love Menu work, " + lag.Unknown + " the game's own work.",
+                    S.BodyStrong, GUILayout.Width(inner));
+                GUILayout.Space(S.S(10));
+                int shown = 0;
+                foreach (LagRecorder.Spike spike in lag.Recent)
+                {
+                    if (shown++ == 8)
+                        break;
+                    GUILayout.Label(spike.When.ToString("HH:mm:ss") + "  " + spike.Ms.ToString("0") + " ms  ·  " + spike.Cause, S.Small, GUILayout.Width(inner));
+                    GUILayout.Space(S.S(3));
+                }
+                GUILayout.Space(S.S(8));
+                if (Button("Clear", S.Secondary))
+                    Later(lag.Reset);
+            }
+            GUILayout.Space(S.S(14));
+            Widgets.Divider(S);
+            GUILayout.Space(S.S(14));
+            PoseRecorder pose = PoseRecorder.Instance;
+            ToggleRow(inner, "pose-recorder", "Pose recorder",
+                "For poses and couple dances that end up inside each other: logs where you and the pose point are, and the nearest avatar, when a pose starts and every second during it.",
+                pose.Enabled, () => { pose.Enabled = !pose.Enabled; Toggle("Pose recorder", pose.Enabled); }, titleStyle: S.BodyStrong);
+            if (pose.LastLine.Length > 0)
+            {
+                GUILayout.Space(S.S(8));
+                GUILayout.Label(pose.LastLine, S.Small, GUILayout.Width(inner));
+            }
+        }
+
+        private void DrawGlitches(float width)
+        {
             Card(width, inner =>
             {
-                GUILayout.Label("Fortune balls", S.CardTitle);
+                GUILayout.Label("Fixes", S.CardTitle);
                 GUILayout.Space(S.S(3));
-                GUILayout.Label("Kiss of Fortune and the other balls have one free opening a day. Click a ball once and its timer shows " +
-                    "here and on Home, and keeps counting after a restart. Opening, prizes and the timer itself stay with the game.",
+                GUILayout.Label("Fixes for bugs in the game itself: things that fail to load, get stuck, look wrong or stop working " +
+                    "while you play. Each fix has its own switch; confirmed fixes are on by default, the rest are off until tested.",
                     S.Description, GUILayout.Width(inner));
                 GUILayout.Space(S.S(12));
-                ToggleRow(inner, "fortune-notify", "Tell me when it's free",
-                    "A notice in the corner when a free opening is ready.",
-                    fortune.NotifyWhenFree, () => { fortune.NotifyWhenFree = !fortune.NotifyWhenFree; Toggle("Fortune notice", fortune.NotifyWhenFree); },
-                    titleStyle: S.BodyStrong);
+                WorkaroundRows(inner, "glitch-", WorkaroundPage.Glitches);
                 GUILayout.Space(S.S(14));
                 Widgets.Divider(S);
                 GUILayout.Space(S.S(14));
-
-                if (fortune.Balls.Count == 0)
-                {
-                    EmptyState("No ball seen yet. Click Kiss of Fortune (Love Angeles beach) to open its window once.");
-                    return;
-                }
-                ListRows(fortune.Balls, (ball, index) =>
-                {
-                    string details = (ball.FreeNow ? "Free opening ready" : "Free in " + FortuneTracker.FormatRemaining(ball.Remaining)) +
-                        (ball.Cost > 0 ? " · paid " + ball.Cost + " GLD" : "") +
-                        (ball.LeftToday >= 0 ? " · " + ball.LeftToday + " left today" : "") +
-                        (ball.Scene.Length > 0 ? " · " + ball.Scene : "");
-                    GUILayout.BeginVertical(GUILayout.Width(inner - S.S(170)));
-                    GUILayout.Label(ball.Name, new GUIStyle(S.BodyStrong) { wordWrap = false, clipping = TextClipping.Clip });
-                    GUILayout.Label(details, new GUIStyle(S.Small)
+                GUILayout.Label("Seen a glitch that isn't here? Report it with the room and what you did just before, and attach a crash report.",
+                    S.Small, GUILayout.Width(inner));
+                GUILayout.Space(S.S(10));
+                GUILayout.BeginHorizontal();
+                if (Button("Report a glitch", S.Primary))
+                    Application.OpenURL("https://github.com/NNKTV28/LoveMenu/issues/new/choose");
+                GUILayout.Space(S.S(8));
+                if (Button("Make crash report", S.Secondary))
+                    Later(() =>
                     {
-                        wordWrap = false, clipping = TextClipping.Clip,
-                        normal = { textColor = ball.FreeNow ? Theme.SuccessText : Theme.TextSecondary },
+                        try
+                        {
+                            BugReport.Create();
+                            Toasts.Show("Report saved to your desktop - attach it to the glitch report");
+                        }
+                        catch (Exception exception)
+                        {
+                            Toasts.Show("Could not make the report: " + exception.Message);
+                        }
                     });
-                    GUILayout.EndVertical();
-                    GUILayout.FlexibleSpace();
-                    bool here = fortune.InThisRoom(ball);
-                    GUI.enabled = here;
-                    Vector3 target = ball.Position;
-                    if (Button(here ? "Go" : "Not here", S.Go))
-                        _teleportController.GoToNpc(target);
-                    GUI.enabled = true;
-                    GUILayout.Space(S.S(8));
-                    FortuneTracker.Ball forget = ball;
-                    if (Button("×", S.Secondary))
-                        Later(() => fortune.Forget(forget));
-                });
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
             });
+
+            Card(width, DrawLagRecorderCard);
         }
 
         // Rendering -------------------------------------------------------------
@@ -1642,8 +1873,25 @@ namespace FlyMod.UI
                     : "Hiding " + people.PeopleHidden + " of " + people.PeopleHere + " people here." +
                       (people.Current == PeopleFilter.Mode.Clan
                           ? (people.MyClan.Length > 0 ? " Your clan: " + people.MyClan + "." : " You aren't in a clan, so everyone is hidden.")
-                          : "");
+                          : people.Current == PeopleFilter.Mode.Picked
+                              ? (people.Picked.Count == 0 ? " Pick people with Only in the People tab." : " Showing the " + people.Picked.Count + " you picked in the People tab.")
+                              : "");
                 GUILayout.Label(status, S.Small, GUILayout.Width(inner));
+                GUILayout.Space(S.S(14));
+                AutoCrowd crowd = AutoCrowd.Instance;
+                ToggleRow(inner, "auto-crowd", "Auto crowd mode",
+                    "When " + crowd.CrowdAtLeast + "+ people are here and FPS stays under " + crowd.FpsBelow +
+                    ", switch to Friends by itself, and back to everyone when the room empties." + (crowd.Active ? " Active now." : ""),
+                    crowd.Enabled, () => { crowd.Enabled = !crowd.Enabled; Toggle("Auto crowd mode", crowd.Enabled); }, titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(14));
+                Widgets.Divider(S);
+                GUILayout.Space(S.S(14));
+                GUILayout.Label("Name tags", S.BodyStrong);
+                GUILayout.Space(S.S(3));
+                GUILayout.Label("Name, clan and badges above everyone are drawn every frame. Only show the tags of people this close to the camera.",
+                    S.Description, GUILayout.Width(inner));
+                GUILayout.Space(S.S(10));
+                Segmented(NameTagDistance.Names, NameTagDistance.Instance.Choice, index => NameTagDistance.Instance.Choice = index, inner);
             });
 
             Card(width, inner =>
@@ -1682,19 +1930,19 @@ namespace FlyMod.UI
                 GUILayout.Label("Costs the game has no setting for, found in its code. All are off by default and apply straight away.",
                     S.Description, GUILayout.Width(inner));
                 GUILayout.Space(S.S(12));
-                WorkaroundRows(inner, "rendering-", true);
+                WorkaroundRows(inner, "rendering-", WorkaroundPage.Rendering);
             });
         }
 
         // The experimental switches for one page, from the shared list.
-        private void WorkaroundRows(float inner, string idPrefix, bool renderingPage)
+        private void WorkaroundRows(float inner, string idPrefix, WorkaroundPage page)
         {
             var workarounds = _crashWorkaroundController.Workarounds;
             bool first = true;
             for (int i = 0; i < workarounds.Count; i++)
             {
                 CrashWorkaround workaround = workarounds[i];
-                if (workaround.OnRenderingPage != renderingPage)
+                if (workaround.Page != page)
                     continue;
                 if (!first)
                     GUILayout.Space(S.S(14));
@@ -1816,7 +2064,7 @@ namespace FlyMod.UI
             {
                 GUILayout.Label("Experimental workarounds", S.CardTitle);
                 GUILayout.Space(S.S(12));
-                WorkaroundRows(inner, "workaround-", false);
+                WorkaroundRows(inner, "workaround-", WorkaroundPage.Crashes);
             }));
         }
 
@@ -1852,6 +2100,12 @@ namespace FlyMod.UI
                 ToggleRow(inner, "promo", "Hide promo popups", "Closes sale popups for 45 s after you spawn. Shop and help still open.",
                     _promoPopupController.Enabled,
                     () => { _promoPopupController.Enabled = !_promoPopupController.Enabled; Toggle("Hide promo popups", _promoPopupController.Enabled); },
+                    titleStyle: S.BodyStrong);
+                GUILayout.Space(S.S(14));
+                FortuneTracker fortune = FortuneTracker.Instance;
+                ToggleRow(inner, "fortune-notify", "Kiss of Fortune notice",
+                    "A notice when a fortune ball's free opening is ready. The countdown is on Home.",
+                    fortune.NotifyWhenFree, () => { fortune.NotifyWhenFree = !fortune.NotifyWhenFree; Toggle("Fortune notice", fortune.NotifyWhenFree); },
                     titleStyle: S.BodyStrong);
             }), column => Card(column, inner =>
             {

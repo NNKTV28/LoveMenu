@@ -64,10 +64,25 @@ namespace FlyMod.Features
 
         private void HideWingRenderers()
         {
+            // Your own wings stay: this is about other people in a crowd, and
+            // hiding yours made new wings "disappear" in the dressing room.
+            // Anything already hidden that turns out to be yours comes back.
+            for (int i = _hiddenRenderers.Count - 1; i >= 0; i--)
+            {
+                Renderer hidden = _hiddenRenderers[i];
+                if (hidden == null)
+                    _hiddenRenderers.RemoveAt(i);
+                else if (IsMine(hidden))
+                {
+                    hidden.enabled = true;
+                    _hiddenRenderers.RemoveAt(i);
+                }
+            }
+
             int matched = 0;
             foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
             {
-                if (renderer == null || !renderer.enabled || !IsWingRenderer(renderer))
+                if (renderer == null || !renderer.enabled || !IsWingRenderer(renderer) || IsMine(renderer))
                     continue;
 
                 matched++;
@@ -134,14 +149,38 @@ namespace FlyMod.Features
             if (ContainsWing(renderer.gameObject.name))
                 return true;
 
+            // Look up to the outfit piece this renderer belongs to
+            // ("[DOMRenderable: N] HF_BodyAttachment_FairyWings") and no
+            // further: past it is the avatar, and a "wing" there matched
+            // every piece - the log showed hair and shoes being hidden.
             Transform current = renderer.transform.parent;
             for (int depth = 0; depth < 4 && current != null; depth++)
             {
                 if (ContainsWing(current.name))
                     return true;
+                if (current.name.StartsWith("[DOM", StringComparison.Ordinal))
+                    return false;
                 current = current.parent;
             }
             return false;
+        }
+
+        // On your avatar, or in a preview (dressing room, shop), which the
+        // game draws on its own "MiniDOM" layers.
+        private static int _miniLayer = -2, _miniSkinLayer = -2;
+
+        private static bool IsMine(Renderer renderer)
+        {
+            if (_miniLayer == -2)
+            {
+                _miniLayer = LayerMask.NameToLayer("MiniDOM");
+                _miniSkinLayer = LayerMask.NameToLayer("MiniDOMSkin");
+            }
+            int layer = renderer.gameObject.layer;
+            if (layer == _miniLayer || layer == _miniSkinLayer)
+                return true;
+            var owner = renderer.GetComponentInParent<VWW.Clients.Curio.Scene.Links.DOMControllerLink>();
+            return owner != null && owner.IsPlayerAvatar;
         }
 
         private static bool ContainsWing(string name) =>

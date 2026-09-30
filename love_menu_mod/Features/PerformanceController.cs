@@ -68,17 +68,27 @@ namespace FlyMod.Features
                 return;
 
             _secondsSinceLastAutoFree = 0f;
-            FreeUnusedMemory();
+            float freed = FreeUnusedMemory();
+            // Nothing to free (the RAM is in use, not leftovers): stop paying
+            // the hitch every 90 s and wait 10 minutes before trying again.
+            if (freed < MinUsefulFreeMB)
+                _secondsSinceLastAutoFree = -(NothingFreedBackoffSeconds - MinSecondsBetweenAutoFrees);
         }
 
-        public void FreeUnusedMemory()
+        private const float MinUsefulFreeMB = 100f;
+        private const float NothingFreedBackoffSeconds = 600f;
+
+        public float FreeUnusedMemory()
         {
             long beforeBytes = _systemStats.WorkingSetBytes();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
+            // No GC.WaitForPendingFinalizers here: blocking the main thread on
+            // the finalizer thread can deadlock the game if a finalizer needs
+            // the main thread - a freeze with 0% CPU, as seen right after an
+            // auto-free on 30 Sep.
             Resources.UnloadUnusedAssets();
             GC.Collect();
-            GC.WaitForPendingFinalizers();
 
             stopwatch.Stop();
             long afterBytes = _systemStats.WorkingSetBytes();
@@ -90,6 +100,7 @@ namespace FlyMod.Features
             _log.LogInfo("[performance] UnloadUnusedAssets: " + LastFreeResult +
                 " | before=" + SystemStatsController.BytesToMB(beforeBytes).ToString("0") + "MB" +
                 " after=" + SystemStatsController.BytesToMB(afterBytes).ToString("0") + "MB");
+            return freedMB;
         }
 
         // 0 = full resolution, 1 = half, 2 = quarter. Dropping a step is the
